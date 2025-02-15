@@ -18,18 +18,23 @@ st.set_page_config(
 # ------------------------------------------------------
 # 2) Conexión a Google Sheets
 # ------------------------------------------------------
-# Cargamos credenciales desde secrets
+scope = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
+
 creds_dict = st.secrets["quantitative_journal"]
-credentials = Credentials.from_service_account_info(creds_dict)
+credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
 gc = gspread.authorize(credentials)
 
-# Nombre del Spreadsheet y Worksheet
-SPREADSHEET_NAME = "quantitative_journal"     # <-- Ojo, este es el "document title" en Google
-WORKSHEET_NAME = "10k account"                # <-- Nombre de la hoja dentro del spreadsheet
+# Abre el spreadsheet por su título exacto
+sh = gc.open("sheet1")
 
-# Abrimos la hoja
-sh = gc.open(WORKSHEET_NAME)  # si tu spreadsheet se llama "10k account", ponlo aquí
-worksheet = sh.sheet1         # o sh.worksheet("nombre_de_la_hoja_si_tienes_varias")
+# Selecciona la pestaña (por nombre o con .sheet1)
+worksheet = sh.sheet1
+
+# Ejemplo: obtener todos los registros
+data = worksheet.get_all_records()
 
 # ------------------------------------------------------
 # 3) Funciones auxiliares
