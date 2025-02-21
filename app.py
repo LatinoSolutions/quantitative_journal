@@ -10,7 +10,7 @@ import gspread
 # 1) Configuración general de la página de Streamlit
 # ------------------------------------------------------
 st.set_page_config(
-    page_title="Bruno's QJ",
+    page_title="Bru's QJ",
     layout="wide",
     initial_sidebar_state="expanded"
 )
