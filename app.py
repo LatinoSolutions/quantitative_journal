@@ -10,7 +10,7 @@ import gspread
 # 1) Configuración general de la página de Streamlit
 # ------------------------------------------------------
 st.set_page_config(
-    page_title="Bru's QJ",
+    page_title="Bru's QuantJournal",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -75,11 +75,13 @@ def overwrite_sheet(df: pd.DataFrame):
     rows = df.values.tolist()
     worksheet.append_rows(rows)
 
-def calculate_r(usd_value: float, account_size=10000, risk_percent=0.3):
+def calculate_r(usd_value: float, account_size=60000, risk_percent=0.25):
     """
-    Calcula cuántas R's representa la ganancia/perdida en 'usd_value'.
+    Calcula cuántas R's representa la ganancia/pérdida en 'usd_value'.
+    Por defecto, tomamos 60k como tamaño de cuenta.
+    OJO: risk_percent=0.25 equivale a 0.25%.
     """
-    risk_amount = account_size * (risk_percent / 100.0)  # 0.3% => 30
+    risk_amount = account_size * (risk_percent / 100.0)  # 0.25% => 0.0025 * 60000 = 150
     R = float(usd_value) / risk_amount
     return round(R, 2)
 
@@ -133,7 +135,7 @@ def check_rules(df: pd.DataFrame, new_trade: dict) -> list:
 # ------------------------------------------------------
 df = get_all_trades()
 
-st.title("Quantitative Journal - 20K Account")
+st.title("Quantitative Journal - 60K Account")
 
 # ======================================================
 # SECCIÓN 1: Colección de datos (Registrar un trade)
@@ -157,8 +159,8 @@ with st.expander("1. Colección de datos (Registrar un trade)", expanded=False):
     if result == "Loss" and usd_pnl > 0:
         usd_pnl = -abs(usd_pnl)
 
-    # Calculamos la R
-    r_value = calculate_r(usd_pnl, account_size=20000, risk_percent=0.3)
+    # Calculamos la R (ahora con risk_percent=0.25)
+    r_value = calculate_r(usd_pnl, account_size=60000, risk_percent=0.25)
 
     if st.button("Agregar Trade"):
         new_trade = {
@@ -195,7 +197,6 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
     if df.empty:
         st.warning("Aún no hay datos registrados.")
     else:
-        # Reemplaza la lógica de estadísticas
         total_trades = len(df)
         wins = len(df[df["Win/Loss/BE"] == "Win"])
         losses = len(df[df["Win/Loss/BE"] == "Loss"])
@@ -240,8 +241,8 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
         st.plotly_chart(fig_pie, use_container_width=True)
 
         # Objetivos en R
-        monthly_target_usd = 20000 * 0.14
-        risk_amount = 20000 * 0.003
+        monthly_target_usd = 60000 * 0.14  # 14% de 60k
+        risk_amount = 60000 * 0.0025      # 0.25% de 60k = 150
         total_R_acum = net_profit / risk_amount
         R_faltantes = (monthly_target_usd - net_profit) / risk_amount
         trades_13_faltan = max(0, int(np.ceil(R_faltantes / 3))) if R_faltantes > 0 else 0
@@ -250,9 +251,9 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
         st.write(f"**R's faltantes** para objetivo +14%: {round(R_faltantes,2)}")
         st.write(f"Trades 1:3 necesarios aprox: {trades_13_faltan}")
 
-        # Evolución
+        # Evolución de la cuenta
         df = df.sort_values("Datetime").reset_index(drop=True)
-        df["Cumulative_USD"] = 20000 + df["USD"].cumsum()
+        df["Cumulative_USD"] = 60000 + df["USD"].cumsum()
         fig_line = px.line(
             df, 
             x="Datetime", 
@@ -262,7 +263,7 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
         st.plotly_chart(fig_line, use_container_width=True)
 
         current_equity = df["Cumulative_USD"].iloc[-1]
-        pct_change = ((current_equity - 20000)/20000)*100
+        pct_change = ((current_equity - 60000)/60000)*100
         st.write(f"**Equity actual**: {round(current_equity,2)} USD | "
                  f"**Variación**: {round(pct_change,2)}%")
 
