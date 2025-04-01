@@ -31,11 +31,17 @@ SPREADSHEET_KEY = "1D4AlYBD1EClp0gGe0qnxr8NeGMbpSvdOx8yHimQDmbE"
 sh = gc.open_by_key(SPREADSHEET_KEY)
 worksheet = sh.worksheet("sheet1")
 
-# Opcional: Inicializar encabezados si la hoja está vacía o mal formada
 REQUIRED_HEADER = ["Fecha","Hora","Symbol","Type","Win/Loss/BE","USD","R","Screenshot","Comentarios"]
+
+# OPCIONAL: Ya no forzamos el borrado si el header no coincide.
+# existing_data = worksheet.get_all_values()
+# if not existing_data or existing_data[0] != REQUIRED_HEADER:
+#     worksheet.clear()
+#     worksheet.append_row(REQUIRED_HEADER)
+
+# Si la hoja está completamente vacía (sin datos), podemos agregar encabezado inicial.
 existing_data = worksheet.get_all_values()
-if not existing_data or existing_data[0] != REQUIRED_HEADER:
-    worksheet.clear()
+if not existing_data:
     worksheet.append_row(REQUIRED_HEADER)
 
 # ------------------------------------------------------
@@ -49,10 +55,14 @@ def get_all_trades() -> pd.DataFrame:
     df = pd.DataFrame(data)
     if not df.empty:
         if "Fecha" in df.columns and "Hora" in df.columns:
+            # Intentar construir Datetime:
             df["Datetime"] = pd.to_datetime(df["Fecha"] + " " + df["Hora"], errors="coerce")
     return df
 
 def append_trade(trade_dict: dict):
+    """
+    Agrega un nuevo trade como una fila al final de la hoja.
+    """
     row_values = [
         trade_dict.get("Fecha",""),
         trade_dict.get("Hora",""),
@@ -69,12 +79,18 @@ def append_trade(trade_dict: dict):
 def overwrite_sheet(df: pd.DataFrame):
     """
     Reemplaza toda la hoja con el DataFrame + encabezados.
-    Conviértimos a string la(s) columna(s) de tipo fecha/hora para evitar TypeError.
+    1) Convierte 'Datetime' a string si existe para evitar TypeError (no se puede subir Timestamps directos).
+    2) Reemplaza NaN por "" para que no falle la serialización JSON.
+    3) Limpia la hoja, reescribe encabezados y luego todas las filas.
     """
-    # Si existe la columna Datetime y es tipo fecha/hora, conviértela a string
+    # Convertir Datetime a texto si existe
     if "Datetime" in df.columns and pd.api.types.is_datetime64_any_dtype(df["Datetime"]):
         df["Datetime"] = df["Datetime"].dt.strftime("%Y-%m-%d %H:%M:%S")
 
+    # Reemplazar NaN/None por cadena vacía, para que no falle JSON
+    df = df.fillna("")
+
+    # Limpia y reescribe
     worksheet.clear()
     worksheet.append_row(df.columns.tolist())
     rows = df.values.tolist()
@@ -315,8 +331,12 @@ with st.expander("4. Editar / Borrar trades", expanded=False):
             new_symbol = st.text_input("Symbol", value=selected_row["Symbol"])
             new_type = st.text_input("Type", value=selected_row["Type"])
             new_result = st.text_input("Win/Loss/BE", value=selected_row["Win/Loss/BE"])
+            
+            # Asegurarnos de convertir a float. Si en la hoja había algo no numérico, 
+            # to_float forzará error => usar float() con try/except o number_input
             new_usd = st.number_input("USD", value=float(selected_row["USD"]), step=0.01)
             new_r = st.number_input("R", value=float(selected_row["R"]), step=0.01)
+
             new_screenshot = st.text_input("Screenshot", value=str(selected_row["Screenshot"]))
             new_comments = st.text_area("Comentarios", value=str(selected_row["Comentarios"]))
 
