@@ -33,13 +33,13 @@ worksheet = sh.worksheet("sheet1")
 
 REQUIRED_HEADER = ["Fecha","Hora","Symbol","Type","Win/Loss/BE","USD","R","Screenshot","Comentarios"]
 
-# OPCIONAL: Ya no forzamos el borrado si el header no coincide.
+# OPCIONAL: Se comenta para no forzar borrado de la hoja si cambia el encabezado
 # existing_data = worksheet.get_all_values()
 # if not existing_data or existing_data[0] != REQUIRED_HEADER:
 #     worksheet.clear()
 #     worksheet.append_row(REQUIRED_HEADER)
 
-# Si la hoja está completamente vacía (sin datos), podemos agregar encabezado inicial.
+# Si la hoja está completamente vacía (sin datos), agregamos encabezado
 existing_data = worksheet.get_all_values()
 if not existing_data:
     worksheet.append_row(REQUIRED_HEADER)
@@ -55,7 +55,6 @@ def get_all_trades() -> pd.DataFrame:
     df = pd.DataFrame(data)
     if not df.empty:
         if "Fecha" in df.columns and "Hora" in df.columns:
-            # Intentar construir Datetime:
             df["Datetime"] = pd.to_datetime(df["Fecha"] + " " + df["Hora"], errors="coerce")
     return df
 
@@ -79,18 +78,15 @@ def append_trade(trade_dict: dict):
 def overwrite_sheet(df: pd.DataFrame):
     """
     Reemplaza toda la hoja con el DataFrame + encabezados.
-    1) Convierte 'Datetime' a string si existe para evitar TypeError (no se puede subir Timestamps directos).
+    1) Convierte 'Datetime' a string si existe (evita TypeError).
     2) Reemplaza NaN por "" para que no falle la serialización JSON.
     3) Limpia la hoja, reescribe encabezados y luego todas las filas.
     """
-    # Convertir Datetime a texto si existe
     if "Datetime" in df.columns and pd.api.types.is_datetime64_any_dtype(df["Datetime"]):
         df["Datetime"] = df["Datetime"].dt.strftime("%Y-%m-%d %H:%M:%S")
 
-    # Reemplazar NaN/None por cadena vacía, para que no falle JSON
-    df = df.fillna("")
+    df = df.fillna("")  # Reemplazar NaN con ""
 
-    # Limpia y reescribe
     worksheet.clear()
     worksheet.append_row(df.columns.tolist())
     rows = df.values.tolist()
@@ -253,6 +249,64 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
         col7.metric("Net Profit", round(net_profit,2))
         col8.write(" ")
 
+        # ---------------------------
+        # NUEVAS MÉTRICAS SOLICITADAS
+        # ---------------------------
+        # capital inicial
+        initial_capital = 60000  
+        # drawdown permitido (10%)
+        max_drawdown_pct = 0.10  
+        max_drawdown_usd = initial_capital * max_drawdown_pct  # 6000
+        dd_limit_equity = initial_capital - max_drawdown_usd    # 54000
+
+        # Meta +14%
+        monthly_target_usd = initial_capital * 0.14  # 8400
+
+        # Calculamos la evolución
+        df = df.sort_values("Datetime").reset_index(drop=True)
+        df["Cumulative_USD"] = initial_capital + df["USD"].cumsum()
+
+        current_equity = df["Cumulative_USD"].iloc[-1]
+        pct_change = ((current_equity - initial_capital)/initial_capital)*100  # % variación desde 60k
+
+        # Distancia en USD a "pérdida máxima (10%)"
+        distance_to_drawdown = current_equity - dd_limit_equity
+        # Si distance_to_drawdown <= 0, significa que ya sobrepasaste (o estás en) el drawdown
+        # Porcentaje de la distancia con respecto al capital inicial
+        distance_to_drawdown_pct = (distance_to_drawdown / initial_capital)*100
+
+        # Distancia a la meta +14% en USD
+        #   meta = 60k + 8400 = 68400
+        target_equity = initial_capital + monthly_target_usd
+        distance_to_target = target_equity - current_equity
+        # Porcentaje sobre capital inicial (opcional)
+        distance_to_target_pct = (distance_to_target / initial_capital) * 100
+
+        # Mostrar estas nuevas métricas
+        col9, col10, col11, col12 = st.columns(4)
+        # Ejemplo: "Variación vs. inicio"
+        col9.metric("Variación(%)", f"{round(pct_change,2)}%")
+        
+        # Drawdown Info
+        if distance_to_drawdown > 0:
+            dd_text = f"{round(distance_to_drawdown,2)} USD restantes"
+        else:
+            dd_text = "¡Alcanzaste o superaste el -10%!"
+        col10.metric("Dist. a -10% DD", dd_text, f"{round(distance_to_drawdown_pct,2)}%")
+
+        # Meta +14% Info
+        if distance_to_target > 0:
+            t_text = f"{round(distance_to_target,2)} USD faltantes"
+        else:
+            t_text = "¡Meta de +14% superada!"
+        col11.metric("Dist. a +14% Target", t_text, f"{round(distance_to_target_pct,2)}%")
+
+        col12.write(" ")
+
+        # ---------------------------
+        # FIN NUEVAS MÉTRICAS
+        # ---------------------------
+
         # Pie Chart Win/Loss/BE
         fig_pie = px.pie(
             names=["Win","Loss","BE"],
@@ -261,9 +315,8 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
         )
         st.plotly_chart(fig_pie, use_container_width=True)
 
-        # Objetivos en R
-        monthly_target_usd = 60000 * 0.14  # 14% de 60k
-        risk_amount = 60000 * 0.0025      # 0.25% de 60k = 150
+        # Objetivos en R (ya los tienes calculados)
+        risk_amount = initial_capital * 0.0025  # 150
         total_R_acum = net_profit / risk_amount
         R_faltantes = (monthly_target_usd - net_profit) / risk_amount
         trades_13_faltan = max(0, int(np.ceil(R_faltantes / 3))) if R_faltantes > 0 else 0
@@ -273,8 +326,6 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
         st.write(f"Trades 1:3 necesarios aprox: {trades_13_faltan}")
 
         # Evolución de la cuenta
-        df = df.sort_values("Datetime").reset_index(drop=True)
-        df["Cumulative_USD"] = 60000 + df["USD"].cumsum()
         fig_line = px.line(
             df, 
             x="Datetime", 
@@ -283,8 +334,6 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
         )
         st.plotly_chart(fig_line, use_container_width=True)
 
-        current_equity = df["Cumulative_USD"].iloc[-1]
-        pct_change = ((current_equity - 60000)/60000)*100
         st.write(f"**Equity actual**: {round(current_equity,2)} USD | "
                  f"**Variación**: {round(pct_change,2)}%")
 
@@ -331,9 +380,8 @@ with st.expander("4. Editar / Borrar trades", expanded=False):
             new_symbol = st.text_input("Symbol", value=selected_row["Symbol"])
             new_type = st.text_input("Type", value=selected_row["Type"])
             new_result = st.text_input("Win/Loss/BE", value=selected_row["Win/Loss/BE"])
-            
-            # Asegurarnos de convertir a float. Si en la hoja había algo no numérico, 
-            # to_float forzará error => usar float() con try/except o number_input
+
+            # Convertir a float. Si la celda tenía un string no convertible, lanza error:
             new_usd = st.number_input("USD", value=float(selected_row["USD"]), step=0.01)
             new_r = st.number_input("R", value=float(selected_row["R"]), step=0.01)
 
