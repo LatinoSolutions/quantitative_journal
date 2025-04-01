@@ -69,7 +69,12 @@ def append_trade(trade_dict: dict):
 def overwrite_sheet(df: pd.DataFrame):
     """
     Reemplaza toda la hoja con el DataFrame + encabezados.
+    Conviértimos a string la(s) columna(s) de tipo fecha/hora para evitar TypeError.
     """
+    # Si existe la columna Datetime y es tipo fecha/hora, conviértela a string
+    if "Datetime" in df.columns and pd.api.types.is_datetime64_any_dtype(df["Datetime"]):
+        df["Datetime"] = df["Datetime"].dt.strftime("%Y-%m-%d %H:%M:%S")
+
     worksheet.clear()
     worksheet.append_row(df.columns.tolist())
     rows = df.values.tolist()
