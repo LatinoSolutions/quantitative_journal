@@ -37,16 +37,13 @@ REQUIRED_HEADER = [
     "Gross_USD","Commission","USD","R","Screenshot","Comentarios","Post-Analysis"
 ]
 
-# OPCIONAL: forzar actualización de encabezado (borrado) si no coincide. 
+# Si la hoja está completamente vacía, escribimos el encabezado nuevo.
 existing_data = worksheet.get_all_values()
-
 if not existing_data:
-    # Si la hoja está completamente vacía, escribimos el encabezado nuevo.
     worksheet.append_row(REQUIRED_HEADER)
 else:
-    # Si la primera fila no coincide con el nuevo encabezado exacto,
-    # forzamos la regeneración de la hoja.
-    # (OJO: Esto borra los datos antiguos; haz copia si es necesario.)
+    # Si la primera fila NO coincide con el nuevo encabezado exacto, lo forzamos.
+    # (Cuidado: esto borra la hoja si difiere. Haz copia si no deseas perder datos.)
     if existing_data[0] != REQUIRED_HEADER:
         worksheet.clear()
         worksheet.append_row(REQUIRED_HEADER)
@@ -102,6 +99,32 @@ def overwrite_sheet(df: pd.DataFrame):
     worksheet.append_row(df.columns.tolist())
     rows = df.values.tolist()
     worksheet.append_rows(rows)
+
+def update_single_row_in_sheet(row_index: int, trade_dict: dict):
+    """
+    Actualiza SOLO la fila en Google Sheets (row_index es 0-based en el DF).
+    - En la hoja, la primera fila (row=1) son los encabezados,
+      por lo que el trade #0 está en la fila 2, etc.
+    - Ajustar el rango A:M (13 columnas) si cambia tu estructura.
+    """
+    sheet_row = row_index + 2  # (encabezados en la fila 1)
+    row_values = [
+        trade_dict.get("Fecha",""),
+        trade_dict.get("Hora",""),
+        trade_dict.get("Symbol",""),
+        trade_dict.get("Type",""),
+        trade_dict.get("Volume",""),
+        trade_dict.get("Win/Loss/BE",""),
+        trade_dict.get("Gross_USD",""),
+        trade_dict.get("Commission",""),
+        trade_dict.get("USD",""),
+        trade_dict.get("R",""),
+        trade_dict.get("Screenshot",""),
+        trade_dict.get("Comentarios",""),
+        trade_dict.get("Post-Analysis","")
+    ]
+    # Actualizamos la fila en la hoja
+    worksheet.update(f"A{sheet_row}:M{sheet_row}", [row_values])
 
 def calculate_r(usd_value: float, account_size=60000, risk_percent=0.25):
     """
@@ -162,6 +185,7 @@ def check_rules(df: pd.DataFrame, new_trade: dict) -> list:
 
     return alerts
 
+
 # ------------------------------------------------------
 # 4) Lectura inicial del DF y Layout
 # ------------------------------------------------------
@@ -190,17 +214,14 @@ with st.expander("1. Colección de datos (Registrar un trade)", expanded=False):
         post_analysis = st.text_area("Post-Analysis (opcional)")
 
     # Forzamos que si es "Loss" y el valor bruto es positivo, lo convirtamos a negativo
-    # (por si el usuario olvidó poner el signo negativo)
     if result == "Loss" and gross_usd > 0:
         gross_usd = -abs(gross_usd)
 
-    # Calculamos la comisión (4 USD / lote round trip)
+    # Comisión (4 USD por lote)
     commission = volume * 4.0
-
-    # Calculamos la ganancia/pérdida neta
+    # Neto
     net_usd = gross_usd - commission
-
-    # Calculamos la R a partir del neto
+    # R
     r_value = calculate_r(net_usd, account_size=60000, risk_percent=0.25)
 
     if st.button("Agregar Trade"):
@@ -230,7 +251,7 @@ with st.expander("1. Colección de datos (Registrar un trade)", expanded=False):
         append_trade(new_trade)
         st.success("Trade agregado exitosamente.")
 
-        # Volver a leer el DF para mostrarlo de inmediato
+        # Actualizamos df en memoria para mostrarlo de inmediato
         df = get_all_trades()
 
 # ======================================================
@@ -254,7 +275,7 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
         win_rate = round((wins / total_trades) * 100, 2) if total_trades > 0 else 0
 
         # Ganancia/pérdida neta total => sum de la columna "USD" (que ya es neta)
-        gross_profit = df[df["USD"] > 0]["USD"].sum()  # en neto
+        gross_profit = df[df["USD"] > 0]["USD"].sum()
         gross_loss = df[df["USD"] < 0]["USD"].sum()
         net_profit = df["USD"].sum()
 
@@ -279,26 +300,26 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
         col5.metric("Gross Profit (neto)", round(gross_profit,2))
         col6.metric("Gross Loss (neto)", round(gross_loss,2))
         col7.metric("Net Profit", round(net_profit,2))
-        col8.write(" ")  # espacio en blanco
+        col8.write(" ")
 
-        # ---------------------------
-        # EJEMPLO DE MÉTRICAS EXTRA
-        # ---------------------------
+        # Curva de equity
         initial_capital = 60000
-        monthly_target_usd = initial_capital * 0.14  # +14%
+        monthly_target_usd = initial_capital * 0.14
         df = df.sort_values("Datetime").reset_index(drop=True)
 
-        # Calculamos la curva de equity neto
         df["Cumulative_USD"] = initial_capital + df["USD"].cumsum()
         current_equity = df["Cumulative_USD"].iloc[-1]
         pct_change = ((current_equity - initial_capital)/initial_capital)*100
 
         col9, col10 = st.columns(2)
         col9.metric("Equity actual", f"{round(current_equity,2)} USD", f"{round(pct_change,2)}% vs. inicio")
-        # Distancia a la meta
         target_equity = initial_capital + monthly_target_usd
         distance_to_target = target_equity - current_equity
-        col10.metric("Dist. a +14%", f"{round(distance_to_target,2)} USD" if distance_to_target>0 else "Meta superada!")
+        if distance_to_target > 0:
+            dist_text = f"{round(distance_to_target,2)} USD"
+        else:
+            dist_text = "Meta superada!"
+        col10.metric("Dist. a +14%", dist_text)
 
         # Pie Chart Win/Loss/BE
         fig_pie = px.pie(
@@ -309,7 +330,7 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
         st.plotly_chart(fig_pie, use_container_width=True)
 
         # Objetivos en R
-        risk_amount = initial_capital * 0.0025  # 0.25%
+        risk_amount = initial_capital * 0.0025
         total_R_acum = net_profit / risk_amount
         R_faltantes = (monthly_target_usd - net_profit) / risk_amount
         trades_13_faltan = max(0, int(np.ceil(R_faltantes / 3))) if R_faltantes > 0 else 0
@@ -318,7 +339,7 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
         st.write(f"**R's faltantes** para objetivo +14%: {round(R_faltantes,2)}")
         st.write(f"Trades 1:3 necesarios aprox: {trades_13_faltan}")
 
-        # Evolución de la cuenta
+        # Evolución de la cuenta (gráfica)
         fig_line = px.line(
             df, 
             x="Datetime", 
@@ -357,11 +378,12 @@ with st.expander("4. Editar / Borrar trades", expanded=False):
         # Botón Borrar
         if st.button("Borrar este trade"):
             df = df.drop(selected_idx).reset_index(drop=True)
+            # Como borramos una fila, REESCRIBIMOS todo el DF a la hoja
             overwrite_sheet(df)
             st.success("Trade borrado con éxito.")
             df = get_all_trades()  # Recargamos
 
-        # Edición de campos
+        # Edición de campos (ACTUALIZA SOLO LA FILA)
         with st.form("edit_form"):
             st.write("Editar este trade:")
 
@@ -372,35 +394,35 @@ with st.expander("4. Editar / Borrar trades", expanded=False):
             new_volume = st.number_input("Volume (lotes)", min_value=0.0, value=float(selected_row["Volume"]), step=0.01)
             new_result = st.text_input("Win/Loss/BE", value=str(selected_row["Win/Loss/BE"]))
 
-            # Leemos Gross_USD y recalculamos Commission y neto
             new_gross_usd = st.number_input("Gross USD", value=float(selected_row["Gross_USD"]), step=0.01)
-
             new_screenshot = st.text_input("Screenshot", value=str(selected_row["Screenshot"]))
             new_comments = st.text_area("Comentarios", value=str(selected_row["Comentarios"]))
             new_post_analysis = st.text_area("Post-Analysis", value=str(selected_row["Post-Analysis"]))
 
             submitted = st.form_submit_button("Guardar Cambios")
             if submitted:
-                # Recalcular la comisión y neto
                 updated_commission = new_volume * 4.0
                 updated_net_usd = new_gross_usd - updated_commission
                 updated_r = calculate_r(updated_net_usd, account_size=60000, risk_percent=0.25)
 
-                df.loc[selected_idx, "Fecha"] = new_fecha
-                df.loc[selected_idx, "Hora"] = new_hora
-                df.loc[selected_idx, "Symbol"] = new_symbol
-                df.loc[selected_idx, "Type"] = new_type
-                df.loc[selected_idx, "Volume"] = new_volume
-                df.loc[selected_idx, "Win/Loss/BE"] = new_result
-                df.loc[selected_idx, "Gross_USD"] = new_gross_usd
-                df.loc[selected_idx, "Commission"] = updated_commission
-                df.loc[selected_idx, "USD"] = updated_net_usd
-                df.loc[selected_idx, "R"] = updated_r
-                df.loc[selected_idx, "Screenshot"] = new_screenshot
-                df.loc[selected_idx, "Comentarios"] = new_comments
+                df.loc[selected_idx, "Fecha"]         = new_fecha
+                df.loc[selected_idx, "Hora"]          = new_hora
+                df.loc[selected_idx, "Symbol"]        = new_symbol
+                df.loc[selected_idx, "Type"]          = new_type
+                df.loc[selected_idx, "Volume"]        = new_volume
+                df.loc[selected_idx, "Win/Loss/BE"]   = new_result
+                df.loc[selected_idx, "Gross_USD"]     = new_gross_usd
+                df.loc[selected_idx, "Commission"]    = updated_commission
+                df.loc[selected_idx, "USD"]           = updated_net_usd
+                df.loc[selected_idx, "R"]             = updated_r
+                df.loc[selected_idx, "Screenshot"]    = new_screenshot
+                df.loc[selected_idx, "Comentarios"]   = new_comments
                 df.loc[selected_idx, "Post-Analysis"] = new_post_analysis
 
-                overwrite_sheet(df)
+                # Construimos un dict con estos valores para actualizar UNA SOLA FILA en la hoja
+                trade_dict_updated = df.loc[selected_idx].to_dict()
+                update_single_row_in_sheet(selected_idx, trade_dict_updated)
+
                 st.success("Trade editado con éxito.")
                 # Recargamos df
                 df = get_all_trades()
