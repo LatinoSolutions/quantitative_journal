@@ -31,18 +31,26 @@ SPREADSHEET_KEY = "1D4AlYBD1EClp0gGe0qnxr8NeGMbpSvdOx8yHimQDmbE"
 sh = gc.open_by_key(SPREADSHEET_KEY)
 worksheet = sh.worksheet("sheet1")
 
-REQUIRED_HEADER = ["Fecha","Hora","Symbol","Type","Win/Loss/BE","USD","R","Screenshot","Comentarios"]
+# Nuevo encabezado que incluye Volume, Commission y Post-Analysis
+REQUIRED_HEADER = [
+    "Fecha","Hora","Symbol","Type","Volume","Win/Loss/BE",
+    "Gross_USD","Commission","USD","R","Screenshot","Comentarios","Post-Analysis"
+]
 
-# OPCIONAL: Se comenta para no forzar borrado de la hoja si cambia el encabezado
-# existing_data = worksheet.get_all_values()
-# if not existing_data or existing_data[0] != REQUIRED_HEADER:
-#     worksheet.clear()
-#     worksheet.append_row(REQUIRED_HEADER)
-
-# Si la hoja está completamente vacía (sin datos), agregamos encabezado
+# OPCIONAL: forzar actualización de encabezado (borrado) si no coincide. 
 existing_data = worksheet.get_all_values()
+
 if not existing_data:
+    # Si la hoja está completamente vacía, escribimos el encabezado nuevo.
     worksheet.append_row(REQUIRED_HEADER)
+else:
+    # Si la primera fila no coincide con el nuevo encabezado exacto,
+    # forzamos la regeneración de la hoja.
+    # (OJO: Esto borra los datos antiguos; haz copia si es necesario.)
+    if existing_data[0] != REQUIRED_HEADER:
+        worksheet.clear()
+        worksheet.append_row(REQUIRED_HEADER)
+
 
 # ------------------------------------------------------
 # 3) Funciones auxiliares
@@ -53,9 +61,9 @@ def get_all_trades() -> pd.DataFrame:
     """
     data = worksheet.get_all_records()
     df = pd.DataFrame(data)
-    if not df.empty:
-        if "Fecha" in df.columns and "Hora" in df.columns:
-            df["Datetime"] = pd.to_datetime(df["Fecha"] + " " + df["Hora"], errors="coerce")
+    # Convertir a datetime si existen esas columnas
+    if not df.empty and "Fecha" in df.columns and "Hora" in df.columns:
+        df["Datetime"] = pd.to_datetime(df["Fecha"] + " " + df["Hora"], errors="coerce")
     return df
 
 def append_trade(trade_dict: dict):
@@ -67,11 +75,15 @@ def append_trade(trade_dict: dict):
         trade_dict.get("Hora",""),
         trade_dict.get("Symbol",""),
         trade_dict.get("Type",""),
+        trade_dict.get("Volume",""),
         trade_dict.get("Win/Loss/BE",""),
+        trade_dict.get("Gross_USD",""),
+        trade_dict.get("Commission",""),
         trade_dict.get("USD",""),
         trade_dict.get("R",""),
         trade_dict.get("Screenshot",""),
-        trade_dict.get("Comentarios","")
+        trade_dict.get("Comentarios",""),
+        trade_dict.get("Post-Analysis","")
     ]
     worksheet.append_row(row_values)
 
@@ -79,14 +91,13 @@ def overwrite_sheet(df: pd.DataFrame):
     """
     Reemplaza toda la hoja con el DataFrame + encabezados.
     1) Convierte 'Datetime' a string si existe (evita TypeError).
-    2) Reemplaza NaN por "" para que no falle la serialización JSON.
+    2) Reemplaza NaN por "" para que no falle la serialización.
     3) Limpia la hoja, reescribe encabezados y luego todas las filas.
     """
     if "Datetime" in df.columns and pd.api.types.is_datetime64_any_dtype(df["Datetime"]):
         df["Datetime"] = df["Datetime"].dt.strftime("%Y-%m-%d %H:%M:%S")
 
     df = df.fillna("")  # Reemplazar NaN con ""
-
     worksheet.clear()
     worksheet.append_row(df.columns.tolist())
     rows = df.values.tolist()
@@ -103,6 +114,10 @@ def calculate_r(usd_value: float, account_size=60000, risk_percent=0.25):
     return round(R, 2)
 
 def check_rules(df: pd.DataFrame, new_trade: dict) -> list:
+    """
+    Valida las reglas (esperar 10 min tras un SL, no sobrepasar 2 SL diarios, no más de 6 SL consecutivos/semana, etc.).
+    Retorna una lista de strings con las violaciones encontradas.
+    """
     alerts = []
     if new_trade["Win/Loss/BE"] == "Loss":
         if not df.empty:
@@ -166,18 +181,27 @@ with st.expander("1. Colección de datos (Registrar un trade)", expanded=False):
         time_str = st.time_input("Hora").strftime("%H:%M:%S")
         symbol = st.selectbox("Símbolo", ["EURUSD", "GBPUSD", "Otro"])
         trade_type = st.selectbox("Tipo", ["Long", "Short"])
+        volume = st.number_input("Volume (lotes)", min_value=0.0, step=0.01)
         result = st.selectbox("Resultado", ["Win", "Loss", "BE"])
     with col2:
-        usd_pnl = st.number_input("USD ganados o perdidos (poner + o -)", value=0.0, step=0.01)
+        gross_usd = st.number_input("Gross USD (PnL bruto sin comisión)", value=0.0, step=0.01)
         screenshot_url = st.text_input("URL Screenshot (opcional)")
         comments = st.text_area("Comentarios (opcional)")
+        post_analysis = st.text_area("Post-Analysis (opcional)")
 
-    # Si es "Loss" y el valor es positivo => pásalo a negativo
-    if result == "Loss" and usd_pnl > 0:
-        usd_pnl = -abs(usd_pnl)
+    # Forzamos que si es "Loss" y el valor bruto es positivo, lo convirtamos a negativo
+    # (por si el usuario olvidó poner el signo negativo)
+    if result == "Loss" and gross_usd > 0:
+        gross_usd = -abs(gross_usd)
 
-    # Calculamos la R (ahora con risk_percent=0.25)
-    r_value = calculate_r(usd_pnl, account_size=60000, risk_percent=0.25)
+    # Calculamos la comisión (4 USD / lote round trip)
+    commission = volume * 4.0
+
+    # Calculamos la ganancia/pérdida neta
+    net_usd = gross_usd - commission
+
+    # Calculamos la R a partir del neto
+    r_value = calculate_r(net_usd, account_size=60000, risk_percent=0.25)
 
     if st.button("Agregar Trade"):
         new_trade = {
@@ -185,11 +209,15 @@ with st.expander("1. Colección de datos (Registrar un trade)", expanded=False):
             "Hora": time_str,
             "Symbol": symbol,
             "Type": trade_type,
+            "Volume": volume,
             "Win/Loss/BE": result,
-            "USD": usd_pnl,
+            "Gross_USD": gross_usd,
+            "Commission": commission,
+            "USD": net_usd,
             "R": r_value,
             "Screenshot": screenshot_url,
-            "Comentarios": comments
+            "Comentarios": comments,
+            "Post-Analysis": post_analysis
         }
 
         # Chequear reglas
@@ -197,16 +225,16 @@ with st.expander("1. Colección de datos (Registrar un trade)", expanded=False):
         if alerts:
             st.error(" / ".join(alerts))
             st.warning("Considera no registrar este trade si viola tus reglas.")
-        
-        # Agregar
+
+        # Agregar a la hoja
         append_trade(new_trade)
         st.success("Trade agregado exitosamente.")
-        
+
         # Volver a leer el DF para mostrarlo de inmediato
         df = get_all_trades()
 
 # ======================================================
-# SECCIÓN 2: Feature Engineering
+# SECCIÓN 2: Feature Engineering y Métricas
 # ======================================================
 with st.expander("2. Feature Engineering y Métricas", expanded=False):
     st.write("Métricas generales de la cuenta y visualizaciones principales.")
@@ -214,15 +242,19 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
     if df.empty:
         st.warning("Aún no hay datos registrados.")
     else:
+        # Convertir a tipo numérico las columnas numéricas
+        for col_name in ["Volume","Gross_USD","Commission","USD","R"]:
+            if col_name in df.columns:
+                df[col_name] = pd.to_numeric(df[col_name], errors="coerce")
+
         total_trades = len(df)
         wins = len(df[df["Win/Loss/BE"] == "Win"])
         losses = len(df[df["Win/Loss/BE"] == "Loss"])
         be = len(df[df["Win/Loss/BE"] == "BE"])
-
         win_rate = round((wins / total_trades) * 100, 2) if total_trades > 0 else 0
 
-        df["USD"] = pd.to_numeric(df["USD"], errors="coerce")
-        gross_profit = df[df["USD"] > 0]["USD"].sum()
+        # Ganancia/pérdida neta total => sum de la columna "USD" (que ya es neta)
+        gross_profit = df[df["USD"] > 0]["USD"].sum()  # en neto
         gross_loss = df[df["USD"] < 0]["USD"].sum()
         net_profit = df["USD"].sum()
 
@@ -244,68 +276,29 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
         col4.metric("Expectancy", f"{expectancy} USD")
 
         col5, col6, col7, col8 = st.columns(4)
-        col5.metric("Gross Profit", round(gross_profit,2))
-        col6.metric("Gross Loss", round(gross_loss,2))
+        col5.metric("Gross Profit (neto)", round(gross_profit,2))
+        col6.metric("Gross Loss (neto)", round(gross_loss,2))
         col7.metric("Net Profit", round(net_profit,2))
-        col8.write(" ")
+        col8.write(" ")  # espacio en blanco
 
         # ---------------------------
-        # NUEVAS MÉTRICAS SOLICITADAS
+        # EJEMPLO DE MÉTRICAS EXTRA
         # ---------------------------
-        # capital inicial
-        initial_capital = 60000  
-        # drawdown permitido (10%)
-        max_drawdown_pct = 0.10  
-        max_drawdown_usd = initial_capital * max_drawdown_pct  # 6000
-        dd_limit_equity = initial_capital - max_drawdown_usd    # 54000
-
-        # Meta +14%
-        monthly_target_usd = initial_capital * 0.14  # 8400
-
-        # Calculamos la evolución
+        initial_capital = 60000
+        monthly_target_usd = initial_capital * 0.14  # +14%
         df = df.sort_values("Datetime").reset_index(drop=True)
+
+        # Calculamos la curva de equity neto
         df["Cumulative_USD"] = initial_capital + df["USD"].cumsum()
-
         current_equity = df["Cumulative_USD"].iloc[-1]
-        pct_change = ((current_equity - initial_capital)/initial_capital)*100  # % variación desde 60k
+        pct_change = ((current_equity - initial_capital)/initial_capital)*100
 
-        # Distancia en USD a "pérdida máxima (10%)"
-        distance_to_drawdown = current_equity - dd_limit_equity
-        # Si distance_to_drawdown <= 0, significa que ya sobrepasaste (o estás en) el drawdown
-        # Porcentaje de la distancia con respecto al capital inicial
-        distance_to_drawdown_pct = (distance_to_drawdown / initial_capital)*100
-
-        # Distancia a la meta +14% en USD
-        #   meta = 60k + 8400 = 68400
+        col9, col10 = st.columns(2)
+        col9.metric("Equity actual", f"{round(current_equity,2)} USD", f"{round(pct_change,2)}% vs. inicio")
+        # Distancia a la meta
         target_equity = initial_capital + monthly_target_usd
         distance_to_target = target_equity - current_equity
-        # Porcentaje sobre capital inicial (opcional)
-        distance_to_target_pct = (distance_to_target / initial_capital) * 100
-
-        # Mostrar estas nuevas métricas
-        col9, col10, col11, col12 = st.columns(4)
-        # Ejemplo: "Variación vs. inicio"
-        col9.metric("Variación(%)", f"{round(pct_change,2)}%")
-        
-        # Drawdown Info
-        if distance_to_drawdown > 0:
-            dd_text = f"{round(distance_to_drawdown,2)} USD restantes"
-        else:
-            dd_text = "¡Alcanzaste o superaste el -10%!"
-        col10.metric("Dist. a -10% DD", dd_text, f"{round(distance_to_drawdown_pct,2)}%")
-
-        # Meta +14% Info
-        if distance_to_target > 0:
-            t_text = f"{round(distance_to_target,2)} USD faltantes"
-        else:
-            t_text = "¡Meta de +14% superada!"
-        col11.metric("Dist. a +14% Target", t_text, f"{round(distance_to_target_pct,2)}%")
-
-        col12.write(" ")
-
-        # ---------------------------
-        # FIN NUEVAS MÉTRICAS
-        # ---------------------------
+        col10.metric("Dist. a +14%", f"{round(distance_to_target,2)} USD" if distance_to_target>0 else "Meta superada!")
 
         # Pie Chart Win/Loss/BE
         fig_pie = px.pie(
@@ -315,8 +308,8 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
         )
         st.plotly_chart(fig_pie, use_container_width=True)
 
-        # Objetivos en R (ya los tienes calculados)
-        risk_amount = initial_capital * 0.0025  # 150
+        # Objetivos en R
+        risk_amount = initial_capital * 0.0025  # 0.25%
         total_R_acum = net_profit / risk_amount
         R_faltantes = (monthly_target_usd - net_profit) / risk_amount
         trades_13_faltan = max(0, int(np.ceil(R_faltantes / 3))) if R_faltantes > 0 else 0
@@ -330,12 +323,9 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
             df, 
             x="Datetime", 
             y="Cumulative_USD", 
-            title="Evolución de la cuenta (USD)"
+            title="Evolución de la cuenta (USD Neto)"
         )
         st.plotly_chart(fig_line, use_container_width=True)
-
-        st.write(f"**Equity actual**: {round(current_equity,2)} USD | "
-                 f"**Variación**: {round(pct_change,2)}%")
 
 # ======================================================
 # SECCIÓN 3: Historial de Trades
@@ -369,36 +359,46 @@ with st.expander("4. Editar / Borrar trades", expanded=False):
             df = df.drop(selected_idx).reset_index(drop=True)
             overwrite_sheet(df)
             st.success("Trade borrado con éxito.")
-            # Recargamos el df
-            df = get_all_trades()
+            df = get_all_trades()  # Recargamos
 
-        # Editar
+        # Edición de campos
         with st.form("edit_form"):
             st.write("Editar este trade:")
-            new_fecha = st.text_input("Fecha", value=selected_row["Fecha"])
-            new_hora = st.text_input("Hora", value=selected_row["Hora"])
-            new_symbol = st.text_input("Symbol", value=selected_row["Symbol"])
-            new_type = st.text_input("Type", value=selected_row["Type"])
-            new_result = st.text_input("Win/Loss/BE", value=selected_row["Win/Loss/BE"])
 
-            # Convertir a float. Si la celda tenía un string no convertible, lanza error:
-            new_usd = st.number_input("USD", value=float(selected_row["USD"]), step=0.01)
-            new_r = st.number_input("R", value=float(selected_row["R"]), step=0.01)
+            new_fecha = st.text_input("Fecha", value=str(selected_row["Fecha"]))
+            new_hora = st.text_input("Hora", value=str(selected_row["Hora"]))
+            new_symbol = st.text_input("Symbol", value=str(selected_row["Symbol"]))
+            new_type = st.text_input("Type", value=str(selected_row["Type"]))
+            new_volume = st.number_input("Volume (lotes)", min_value=0.0, value=float(selected_row["Volume"]), step=0.01)
+            new_result = st.text_input("Win/Loss/BE", value=str(selected_row["Win/Loss/BE"]))
+
+            # Leemos Gross_USD y recalculamos Commission y neto
+            new_gross_usd = st.number_input("Gross USD", value=float(selected_row["Gross_USD"]), step=0.01)
 
             new_screenshot = st.text_input("Screenshot", value=str(selected_row["Screenshot"]))
             new_comments = st.text_area("Comentarios", value=str(selected_row["Comentarios"]))
+            new_post_analysis = st.text_area("Post-Analysis", value=str(selected_row["Post-Analysis"]))
 
             submitted = st.form_submit_button("Guardar Cambios")
             if submitted:
+                # Recalcular la comisión y neto
+                updated_commission = new_volume * 4.0
+                updated_net_usd = new_gross_usd - updated_commission
+                updated_r = calculate_r(updated_net_usd, account_size=60000, risk_percent=0.25)
+
                 df.loc[selected_idx, "Fecha"] = new_fecha
                 df.loc[selected_idx, "Hora"] = new_hora
                 df.loc[selected_idx, "Symbol"] = new_symbol
                 df.loc[selected_idx, "Type"] = new_type
+                df.loc[selected_idx, "Volume"] = new_volume
                 df.loc[selected_idx, "Win/Loss/BE"] = new_result
-                df.loc[selected_idx, "USD"] = new_usd
-                df.loc[selected_idx, "R"] = new_r
+                df.loc[selected_idx, "Gross_USD"] = new_gross_usd
+                df.loc[selected_idx, "Commission"] = updated_commission
+                df.loc[selected_idx, "USD"] = updated_net_usd
+                df.loc[selected_idx, "R"] = updated_r
                 df.loc[selected_idx, "Screenshot"] = new_screenshot
                 df.loc[selected_idx, "Comentarios"] = new_comments
+                df.loc[selected_idx, "Post-Analysis"] = new_post_analysis
 
                 overwrite_sheet(df)
                 st.success("Trade editado con éxito.")
