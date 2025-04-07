@@ -9,7 +9,7 @@ import gspread
 # 1) Configuración general de la página de Streamlit
 # ------------------------------------------------------
 st.set_page_config(
-    page_title="Quantitative Journal - READ ONLY",
+    page_title="Bruce-Lit Quantitative Journal + Study Cases",
     layout="wide",
     initial_sidebar_state="expanded"
 )
