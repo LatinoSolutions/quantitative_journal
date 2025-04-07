@@ -78,8 +78,7 @@ with st.expander("1. Study Cases", expanded=False):
                 fecha = row.get("Fecha","")
                 symbol = row.get("Symbol","")
                 link = row.get("StudyCaseLink","")
-                st.markdown(f"- **Fecha**: {fecha} | **Símbolo**: {symbol}  
-   [Abrir Study Case en Canva (u otro)]({link})")
+                st.markdown(f"- **Fecha**: {fecha} | **Símbolo**: {symbol} [Abrir Study Case en Canva (u otro)]({link})")
 
 ##############################################
 # SECCIÓN 2: MÉTRICAS Y VISUALIZACIONES
