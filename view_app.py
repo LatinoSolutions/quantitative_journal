@@ -9,7 +9,7 @@ import gspread
 # 1) Configuración general de la página de Streamlit
 # ------------------------------------------------------
 st.set_page_config(
-    page_title="Bruce-Lit Quantitative Journal + Study Cases",
+    page_title="Bruce-Lit Journal",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -48,7 +48,7 @@ def get_all_trades() -> pd.DataFrame:
 # 4) Lectura del DF y Layout
 # ------------------------------------------------------
 df = get_all_trades()
-st.title("Quantitative Journal - Solo Lectura")
+st.title("Bruce-Lit Journal")
 
 if df.empty:
     st.warning("Aún no hay datos registrados.")
@@ -94,7 +94,6 @@ else:
         col7.metric("Net Profit", round(net_profit,2))
         col8.write(" ")
 
-        # Curva de equity
         initial_capital = 60000
         df = df.sort_values("Datetime").reset_index(drop=True)
         df["Cumulative_USD"] = initial_capital + df["USD"].cumsum()
@@ -122,9 +121,32 @@ else:
         st.plotly_chart(fig_line, use_container_width=True)
 
     # ==============================
-    # SECCIÓN 2: Historial de trades
+    # SECCIÓN 2: HISTORIAL DE TRADES
     # ==============================
     with st.expander("2. Historial de trades (Solo Lectura)", expanded=False):
         st.dataframe(df, use_container_width=True)
+
+    # ==============================
+    # SECCIÓN 3: STUDY CASES
+    # ==============================
+    if "StudyCaseLink" in df.columns:
+        with st.expander("3. Study Cases", expanded=False):
+            # Filtra los trades que tengan algo en StudyCaseLink
+            df_cases = df[ df["StudyCaseLink"].notnull() & (df["StudyCaseLink"] != "") ].copy()
+
+            if df_cases.empty:
+                st.info("No hay Study Cases registrados todavía.")
+            else:
+                # Mostrar de forma compacta los enlaces
+                st.write("A continuación se listan los Study Cases que tienes registrados:")
+                for idx, row in df_cases.iterrows():
+                    fecha = row.get("Fecha","")
+                    symbol = row.get("Symbol","")
+                    link = row.get("StudyCaseLink","")
+                    # Podemos usar un markdown para que aparezca clicable
+                    st.markdown(f"- **{fecha}** | {symbol} => [Ver Study Case]({link})")
+    else:
+        # Si la columna ni siquiera existe, simplemente no hacemos nada
+        st.warning("No existe la columna 'StudyCaseLink' en la hoja. Registra al menos uno en tu QJ principal para verlos aquí.")
 
 st.write("Versión de Solo Lectura - No se pueden agregar ni editar trades aquí.")
