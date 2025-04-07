@@ -31,22 +31,26 @@ SPREADSHEET_KEY = "1D4AlYBD1EClp0gGe0qnxr8NeGMbpSvdOx8yHimQDmbE"
 sh = gc.open_by_key(SPREADSHEET_KEY)
 worksheet = sh.worksheet("sheet1")
 
-# Nuevo encabezado que incluye Volume, Commission y Post-Analysis
+# AÑADIMOS la columna "StudyCaseLink"
+# Nuevo encabezado con 14 columnas totales:
 REQUIRED_HEADER = [
     "Fecha","Hora","Symbol","Type","Volume","Win/Loss/BE",
-    "Gross_USD","Commission","USD","R","Screenshot","Comentarios","Post-Analysis"
+    "Gross_USD","Commission","USD","R","Screenshot",
+    "Comentarios","Post-Analysis","StudyCaseLink"
 ]
 
-# Si la hoja está completamente vacía, escribimos el encabezado nuevo.
+# Verificamos si la hoja está vacía
 existing_data = worksheet.get_all_values()
+
 if not existing_data:
+    # Si la hoja está completamente vacía, escribimos el encabezado nuevo.
     worksheet.append_row(REQUIRED_HEADER)
 else:
-    # Si la primera fila NO coincide con el nuevo encabezado exacto, lo forzamos.
-    # (Cuidado: esto borra la hoja si difiere. Haz copia si no deseas perder datos.)
-    if existing_data[0] != REQUIRED_HEADER:
-        worksheet.clear()
-        worksheet.append_row(REQUIRED_HEADER)
+    # Comentar la parte que "forzaba" el borrado si no coincidía
+    # if existing_data[0] != REQUIRED_HEADER:
+    #     worksheet.clear()
+    #     worksheet.append_row(REQUIRED_HEADER)
+    pass
 
 
 # ------------------------------------------------------
@@ -80,7 +84,8 @@ def append_trade(trade_dict: dict):
         trade_dict.get("R",""),
         trade_dict.get("Screenshot",""),
         trade_dict.get("Comentarios",""),
-        trade_dict.get("Post-Analysis","")
+        trade_dict.get("Post-Analysis",""),
+        trade_dict.get("StudyCaseLink","")  # <--- campo nuevo
     ]
     worksheet.append_row(row_values)
 
@@ -105,7 +110,7 @@ def update_single_row_in_sheet(row_index: int, trade_dict: dict):
     Actualiza SOLO la fila en Google Sheets (row_index es 0-based en el DF).
     - En la hoja, la primera fila (row=1) son los encabezados,
       por lo que el trade #0 está en la fila 2, etc.
-    - Ajustar el rango A:M (13 columnas) si cambia tu estructura.
+    - Ajustar el rango A:N (14 columnas) si cambia tu estructura.
     """
     sheet_row = row_index + 2  # (encabezados en la fila 1)
     row_values = [
@@ -121,10 +126,11 @@ def update_single_row_in_sheet(row_index: int, trade_dict: dict):
         trade_dict.get("R",""),
         trade_dict.get("Screenshot",""),
         trade_dict.get("Comentarios",""),
-        trade_dict.get("Post-Analysis","")
+        trade_dict.get("Post-Analysis",""),
+        trade_dict.get("StudyCaseLink","")
     ]
-    # Actualizamos la fila en la hoja
-    worksheet.update(f"A{sheet_row}:M{sheet_row}", [row_values])
+    # Notar que ahora es hasta la columna N, que es la 14ª columna
+    worksheet.update(f"A{sheet_row}:N{sheet_row}", [row_values])
 
 def calculate_r(usd_value: float, account_size=60000, risk_percent=0.25):
     """
@@ -212,6 +218,7 @@ with st.expander("1. Colección de datos (Registrar un trade)", expanded=False):
         screenshot_url = st.text_input("URL Screenshot (opcional)")
         comments = st.text_area("Comentarios (opcional)")
         post_analysis = st.text_area("Post-Analysis (opcional)")
+        study_case_link = st.text_input("Study Case Link (opcional)")  # <--- NUEVO input
 
     # Forzamos que si es "Loss" y el valor bruto es positivo, lo convirtamos a negativo
     if result == "Loss" and gross_usd > 0:
@@ -238,7 +245,8 @@ with st.expander("1. Colección de datos (Registrar un trade)", expanded=False):
             "R": r_value,
             "Screenshot": screenshot_url,
             "Comentarios": comments,
-            "Post-Analysis": post_analysis
+            "Post-Analysis": post_analysis,
+            "StudyCaseLink": study_case_link  # <--- lo guardamos en el dict
         }
 
         # Chequear reglas
@@ -274,12 +282,10 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
         be = len(df[df["Win/Loss/BE"] == "BE"])
         win_rate = round((wins / total_trades) * 100, 2) if total_trades > 0 else 0
 
-        # Ganancia/pérdida neta total => sum de la columna "USD" (que ya es neta)
         gross_profit = df[df["USD"] > 0]["USD"].sum()
         gross_loss = df[df["USD"] < 0]["USD"].sum()
         net_profit = df["USD"].sum()
 
-        # Profit Factor
         profit_factor = 0
         if gross_loss != 0:
             profit_factor = round(abs(gross_profit / gross_loss), 2)
@@ -302,7 +308,6 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
         col7.metric("Net Profit", round(net_profit,2))
         col8.write(" ")
 
-        # Curva de equity
         initial_capital = 60000
         monthly_target_usd = initial_capital * 0.14
         df = df.sort_values("Datetime").reset_index(drop=True)
@@ -339,7 +344,6 @@ with st.expander("2. Feature Engineering y Métricas", expanded=False):
         st.write(f"**R's faltantes** para objetivo +14%: {round(R_faltantes,2)}")
         st.write(f"Trades 1:3 necesarios aprox: {trades_13_faltan}")
 
-        # Evolución de la cuenta (gráfica)
         fig_line = px.line(
             df, 
             x="Datetime", 
@@ -378,8 +382,7 @@ with st.expander("4. Editar / Borrar trades", expanded=False):
         # Botón Borrar
         if st.button("Borrar este trade"):
             df = df.drop(selected_idx).reset_index(drop=True)
-            # Como borramos una fila, REESCRIBIMOS todo el DF a la hoja
-            overwrite_sheet(df)
+            overwrite_sheet(df)  # Reescribimos todo para quitar esa fila
             st.success("Trade borrado con éxito.")
             df = get_all_trades()  # Recargamos
 
@@ -399,32 +402,34 @@ with st.expander("4. Editar / Borrar trades", expanded=False):
             new_comments = st.text_area("Comentarios", value=str(selected_row["Comentarios"]))
             new_post_analysis = st.text_area("Post-Analysis", value=str(selected_row["Post-Analysis"]))
 
+            # Campo nuevo para editar
+            new_studycase_link = st.text_input("Study Case Link", value=str(selected_row["StudyCaseLink"]))
+
             submitted = st.form_submit_button("Guardar Cambios")
             if submitted:
                 updated_commission = new_volume * 4.0
                 updated_net_usd = new_gross_usd - updated_commission
                 updated_r = calculate_r(updated_net_usd, account_size=60000, risk_percent=0.25)
 
-                df.loc[selected_idx, "Fecha"]         = new_fecha
-                df.loc[selected_idx, "Hora"]          = new_hora
-                df.loc[selected_idx, "Symbol"]        = new_symbol
-                df.loc[selected_idx, "Type"]          = new_type
-                df.loc[selected_idx, "Volume"]        = new_volume
-                df.loc[selected_idx, "Win/Loss/BE"]   = new_result
-                df.loc[selected_idx, "Gross_USD"]     = new_gross_usd
-                df.loc[selected_idx, "Commission"]    = updated_commission
-                df.loc[selected_idx, "USD"]           = updated_net_usd
-                df.loc[selected_idx, "R"]             = updated_r
-                df.loc[selected_idx, "Screenshot"]    = new_screenshot
-                df.loc[selected_idx, "Comentarios"]   = new_comments
-                df.loc[selected_idx, "Post-Analysis"] = new_post_analysis
+                df.loc[selected_idx, "Fecha"]            = new_fecha
+                df.loc[selected_idx, "Hora"]             = new_hora
+                df.loc[selected_idx, "Symbol"]           = new_symbol
+                df.loc[selected_idx, "Type"]             = new_type
+                df.loc[selected_idx, "Volume"]           = new_volume
+                df.loc[selected_idx, "Win/Loss/BE"]      = new_result
+                df.loc[selected_idx, "Gross_USD"]        = new_gross_usd
+                df.loc[selected_idx, "Commission"]       = updated_commission
+                df.loc[selected_idx, "USD"]              = updated_net_usd
+                df.loc[selected_idx, "R"]                = updated_r
+                df.loc[selected_idx, "Screenshot"]       = new_screenshot
+                df.loc[selected_idx, "Comentarios"]      = new_comments
+                df.loc[selected_idx, "Post-Analysis"]    = new_post_analysis
+                df.loc[selected_idx, "StudyCaseLink"]    = new_studycase_link
 
-                # Construimos un dict con estos valores para actualizar UNA SOLA FILA en la hoja
                 trade_dict_updated = df.loc[selected_idx].to_dict()
                 update_single_row_in_sheet(selected_idx, trade_dict_updated)
 
                 st.success("Trade editado con éxito.")
-                # Recargamos df
                 df = get_all_trades()
 
 # Fin de la app
