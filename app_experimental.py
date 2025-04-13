@@ -68,7 +68,6 @@ def calculate_sortino(returns_series, rf=0.0):
     Sortino ratio = (mean(returns)-rf) / std(returns<0).
     """
     avg_ret = returns_series.mean()
-    # Filtra solo retornos negativos para la desviación
     neg_ret = returns_series[returns_series < 0]
     std_neg = neg_ret.std(ddof=1)
     if std_neg == 0:
@@ -113,33 +112,24 @@ df["Cumulative_USD"] = initial_capital + df["USD"].cumsum()
 ###############################
 with st.expander("1) Métricas de rendimiento avanzado", expanded=False):
     st.write("### Consecutive Wins / Losses")
-    # Vamos a calcular rachas ganadoras y perdedoras
     consecutive_w = 0
     max_consecutive_w = 0
     consecutive_l = 0
     max_consecutive_l = 0
-
-    # Lista para graficar la racha en cada trade, por curiosidad
-    consecutive_list = []
 
     for i, row in df.iterrows():
         result = row.get("Win/Loss/BE","")
         if result == "Win":
             consecutive_w += 1
             max_consecutive_w = max(max_consecutive_w, consecutive_w)
-            # reseteamos L
             consecutive_l = 0
         elif result == "Loss":
             consecutive_l += 1
             max_consecutive_l = max(max_consecutive_l, consecutive_l)
-            # reseteamos W
             consecutive_w = 0
-        else:
-            # si es "BE", reseteamos ambos
+        else:  # BE
             consecutive_w = 0
             consecutive_l = 0
-
-        consecutive_list.append((consecutive_w, consecutive_l))
 
     col1, col2 = st.columns(2)
     col1.metric("Max consecutive Wins", max_consecutive_w)
@@ -147,12 +137,10 @@ with st.expander("1) Métricas de rendimiento avanzado", expanded=False):
 
     st.write("### Drawdown")
     dd_series = calculate_drawdown(df["Cumulative_USD"])
-    max_dd = dd_series.max()  # el peor drawdown
+    max_dd = dd_series.max()  
     max_dd_pct = (max_dd / initial_capital) * 100 if initial_capital != 0 else 0
-
     st.write(f"**Máximo Drawdown**: {round(max_dd,2)} USD / {round(max_dd_pct,2)}%")
 
-    # Gráfico de drawdown a lo largo del tiempo
     fig_dd = go.Figure()
     fig_dd.add_trace(go.Scatter(
         x=df["Datetime"],
@@ -165,12 +153,8 @@ with st.expander("1) Métricas de rendimiento avanzado", expanded=False):
     st.plotly_chart(fig_dd, use_container_width=True)
 
     st.write("### Sharpe / Sortino (aprox)")
-    # Para un cálculo real, necesitamos retornos diarios o semanales en lugar de ver trade a trade.
-    # Hacemos un approach simple: calculamos la diferencia de la equity día a día.
-    # 1) Agrupamos trades por día y sumamos la 'USD'
     df["DateOnly"] = df["Datetime"].dt.date
     daily_pnl = df.groupby("DateOnly")["USD"].sum().reset_index()
-    # 2) Calculamos 'retorno' = PNL_dia / capital_inicial
     daily_pnl["Return"] = daily_pnl["USD"] / initial_capital
 
     sharpe = calculate_sharpe(daily_pnl["Return"])
@@ -182,18 +166,16 @@ with st.expander("1) Métricas de rendimiento avanzado", expanded=False):
 # 2. Resúmenes semanales / mensuales
 ###############################
 with st.expander("2) Resúmenes semanales / mensuales", expanded=False):
-    # WEEKLY
     df["WeekTag"] = df["Datetime"].apply(lambda x: get_week_number(x) if pd.notnull(x) else "")
     weekly_stats = df.groupby("WeekTag").agg(
-        Trades=("USD","count"),    # # de filas (trades)
-        NetPNL=("USD","sum"),      # Ganancia neta
-        VolumeSum=("Volume","sum") if "Volume" in df.columns else ("USD","count"), # solo si existe
+        Trades=("USD","count"),
+        NetPNL=("USD","sum"),
+        VolumeSum=("Volume","sum") if "Volume" in df.columns else ("USD","count"),
     ).reset_index()
 
     st.write("### Resumen Semanal")
     st.dataframe(weekly_stats)
 
-    # Grafico de NetPNL vs. WeekTag
     fig_week = px.bar(
         weekly_stats,
         x="WeekTag",
@@ -203,7 +185,6 @@ with st.expander("2) Resúmenes semanales / mensuales", expanded=False):
     )
     st.plotly_chart(fig_week, use_container_width=True)
 
-    # MONTHLY
     df["MonthTag"] = df["Datetime"].apply(lambda x: get_month_number(x) if pd.notnull(x) else "")
     monthly_stats = df.groupby("MonthTag").agg(
         Trades=("USD","count"),
@@ -232,8 +213,7 @@ with st.expander("2) Resúmenes semanales / mensuales", expanded=False):
 # 3. Calendario / Timeline de trades
 ###############################
 with st.expander("3) Calendario / Timeline de trades", expanded=False):
-    # Aquí haremos una bar chart con la Fecha vs. # trades o neto del día
-    df["DateOnly"] = df["Datetime"].dt.date  # ya lo hicimos arriba, pero repetimos
+    df["DateOnly"] = df["Datetime"].dt.date
     daily_counts = df.groupby("DateOnly").agg(
         Trades=("USD","count"),
         NetPNL=("USD","sum")
@@ -263,10 +243,9 @@ with st.expander("3) Calendario / Timeline de trades", expanded=False):
     """)
 
 ###############################
-# 4. Análisis por Symbol o por Hora
+# 4. Análisis por Symbol / Hora
 ###############################
 with st.expander("4) Análisis por Symbol / Hora", expanded=False):
-    # Por symbol
     if "Symbol" in df.columns:
         symbol_stats = df.groupby("Symbol").agg(
             Trades=("USD","count"),
@@ -281,10 +260,7 @@ with st.expander("4) Análisis por Symbol / Hora", expanded=False):
         )
         st.plotly_chart(fig_symbol, use_container_width=True)
 
-    # Por hora
     if "Hora" in df.columns:
-        # Convertir "Hora" a datetime.time y agrupar
-        # O, más simple, extraer la parte HH
         df["HourInt"] = pd.to_datetime(df["Hora"], format="%H:%M:%S", errors="coerce").dt.hour
         hour_stats = df.groupby("HourInt").agg(
             Trades=("USD","count"),
@@ -305,43 +281,41 @@ with st.expander("4) Análisis por Symbol / Hora", expanded=False):
 ###############################
 with st.expander("5) Post-Analysis y Etiquetas", expanded=False):
     st.write("""
-    Si creaste una columna 'ErrorCategory' o 'SetupCategory' en la hoja, 
-    aquí podríamos agrupar las pérdidas por tipo de error o setup. 
+    Si creaste una columna 'ErrorCategory' en la hoja,
+    aquí podríamos agrupar las pérdidas por tipo de error. 
     Ejemplo: "Psicológico", "Noticia", "FOMO", "Técnico", etc.
     """)
 
     if "ErrorCategory" in df.columns:
-        cat_stats = df.groupby("ErrorCategory").agg(
-            Trades=("USD","count"),
-            NetPNL=("USD","sum")
-        ).reset_index()
-        # Filtramos solo trades con net PnL < 0 (pérdidas)
         cat_loss_stats = df[df["USD"]<0].groupby("ErrorCategory").agg(
             LossTrades=("USD","count"),
             LossSum=("USD","sum")
         ).reset_index()
 
-        st.write("#### Pérdidas por categoría de error")
-        st.dataframe(cat_loss_stats)
+        if cat_loss_stats.empty:
+            st.info("No hay pérdidas registradas o no hay categorías de error.")
+        else:
+            st.write("#### Pérdidas por categoría de error")
+            st.dataframe(cat_loss_stats)
 
-        fig_cat = px.bar(
-            cat_loss_stats, x="ErrorCategory", y="LossSum",
-            title="Suma de pérdidas por Categoría",
-            labels={"ErrorCategory":"Categoría","LossSum":"USD Perdidos"},
-            color="ErrorCategory"
-        )
-        st.plotly_chart(fig_cat, use_container_width=True)
+            fig_cat = px.bar(
+                cat_loss_stats, x="ErrorCategory", y="LossSum",
+                title="Suma de pérdidas por Categoría",
+                labels={"ErrorCategory":"Categoría","LossSum":"USD Perdidos"},
+                color="ErrorCategory"
+            )
+            st.plotly_chart(fig_cat, use_container_width=True)
     else:
-        st.info("No existe la columna 'ErrorCategory' en la hoja. Puedes crearla y etiquetar tus trades para ver estadísticas de errores.")
+        st.info("No existe la columna 'ErrorCategory' en la hoja. Crea la columna y etiquétalos.")
 
 ###############################
 # 6. Study Cases con mini-imágenes
 ###############################
 with st.expander("6) Study Cases con imágenes", expanded=False):
     st.write("""
-    Asumiendo que tienes una columna 'StudyCaseImageURL' donde 
-    guardas links directos a una imagen (PNG, JPG, etc.). 
-    Aquí mostraremos miniaturas y un link. 
+    Asumiendo que tienes una columna 'StudyCaseImageURL' 
+    con links directos a una imagen (PNG, JPG, etc.). 
+    Mostramos miniaturas y un link.
     """)
 
     if "StudyCaseImageURL" not in df.columns:
@@ -356,18 +330,74 @@ with st.expander("6) Study Cases con imágenes", expanded=False):
                 symbol = row.get("Symbol","")
                 img_url = row.get("StudyCaseImageURL","")
                 st.write(f"**Trade**: {i} | {fecha} | {symbol}")
-                # Mostramos la imagen en miniatura
-                st.image(img_url, width=300)  # ajusta el ancho
-                # Link para abrir en tamaño completo
+                st.image(img_url, width=300)
                 st.markdown(f"[Ver tamaño completo]({img_url})")
                 st.write("---")
+
+###############################
+# 7. Panel de Study Cases (tarjetas)
+###############################
+with st.expander("7) Panel de Study Cases (tarjetas)", expanded=False):
+    st.write("""
+    Un panel estilo 'tarjetas' que filtra por `ErrorCategory` 
+    y muestra `StudyCaseLink` y `StudyCaseImageURL`. 
+    """)
+    # Si no existen las columnas, mostramos aviso
+    needed_cols = ["StudyCaseLink","ErrorCategory","StudyCaseImageURL"]
+    missing_cols = [c for c in needed_cols if c not in df.columns]
+    if missing_cols:
+        st.warning(f"No existen las columnas: {missing_cols}. Crea/edita tu hoja para usarlas.")
+    else:
+        # Filtramos solo trades con StudyCaseLink != ""
+        df_sc = df[df["StudyCaseLink"].notnull() & (df["StudyCaseLink"]!="")].copy()
+        df_sc = df_sc.sort_values("Datetime", ascending=False).reset_index(drop=True)
+        if df_sc.empty:
+            st.info("No hay Study Cases registrados (StudyCaseLink vacío).")
+        else:
+            # MULTISELECT para filtrar ErrorCategory
+            all_cats = [c for c in df_sc["ErrorCategory"].unique().tolist() if c]
+            selected_cats = st.multiselect("Filtrar por Error Category", options=all_cats, default=all_cats)
+            filtered_df = df_sc.copy()
+            if selected_cats:
+                filtered_df = filtered_df[ filtered_df["ErrorCategory"].isin(selected_cats) ]
+
+            st.write(f"**Study Cases encontrados**: {len(filtered_df)}")
+
+            # Tarjetas 2 por fila
+            cards_per_row = 2
+            rows = [filtered_df.iloc[i:i+cards_per_row] for i in range(0, len(filtered_df), cards_per_row)]
+
+            for row_chunk in rows:
+                cols = st.columns(cards_per_row)
+                for i, (idx, trade) in enumerate(row_chunk.iterrows()):
+                    with cols[i]:
+                        fecha = trade.get("Fecha","")
+                        hora = trade.get("Hora","")
+                        symbol = trade.get("Symbol","")
+                        errorcat = trade.get("ErrorCategory","N/A")
+                        resolved = trade.get("Resolved","No")
+                        canva_link = trade.get("StudyCaseLink","")
+                        mini_img = trade.get("StudyCaseImageURL","")
+
+                        st.write(f"**Fecha**: {fecha} {hora}")
+                        st.write(f"**Símbolo**: {symbol}")
+                        st.write(f"**Categoría**: {errorcat}")
+                        st.write(f"**Resuelto?**: {resolved}")
+
+                        # Mostramos la imagen en mini, si existe
+                        if mini_img:
+                            st.image(mini_img, width=250)
+
+                        # Link a Canva o lo que uses
+                        st.markdown(f"[Abrir StudyCase Link]({canva_link})")
+
+                        st.write("---")
 
 st.write("""
 ---
 ### Nota final
-Esta app es solo un prototipo de ideas más avanzadas. 
-**No** edita tus trades (solo lectura). 
-Puedes combinar secciones y personalizarlas 
-según tus columnas y tus datos en Google Sheets.
+Esta app es un prototipo con ideas avanzadas. 
+No edita tus trades (solo lectura). 
+Si algo te sobra o te falta, ajusta la sección correspondiente. 
 ---
 """)
