@@ -109,13 +109,7 @@ def overwrite_sheet(df: pd.DataFrame):
     worksheet.append_rows(rows)
 
 def update_single_row_in_sheet(row_index: int, trade_dict: dict):
-    """
-    Actualiza SOLO la fila en Google Sheets (row_index es 0-based en el DF).
-    - En la hoja, la primera fila (row=1) son los encabezados,
-      por lo que el trade #0 está en la fila 2, etc.
-    - Ajustar el rango A:N (14 columnas) si cambia tu estructura.
-    """
-    sheet_row = row_index + 2  # (encabezados en la fila 1)
+    sheet_row = row_index + 2  # la fila en la hoja (1-based) 
     row_values = [
         trade_dict.get("Fecha",""),
         trade_dict.get("Hora",""),
@@ -130,10 +124,13 @@ def update_single_row_in_sheet(row_index: int, trade_dict: dict):
         trade_dict.get("Screenshot",""),
         trade_dict.get("Comentarios",""),
         trade_dict.get("Post-Analysis",""),
-        trade_dict.get("StudyCaseLink","")
+        trade_dict.get("StudyCaseLink",""),
+        trade_dict.get("ErrorCategory",""),
+        trade_dict.get("Resolved",""),
+        trade_dict.get("StudyCaseImageURL","")  # <-- la 17.ª 
     ]
-    # Notar que ahora es hasta la columna N, que es la 14ª columna
-    worksheet.update(f"A{sheet_row}:N{sheet_row}", [row_values])
+    # Si ya son 17 columnas, necesitas usar Q en el rango
+    worksheet.update(f"A{sheet_row}:Q{sheet_row}", [row_values])
 
 def calculate_r(usd_value: float, account_size=60000, risk_percent=0.25):
     """
