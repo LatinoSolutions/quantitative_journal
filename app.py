@@ -170,66 +170,73 @@ with st.expander("📊 Métricas / KPIs", expanded=False):
 
 
 # ================================================================
-#  SECCIÓN 3 · Historial
+#  SECCIÓN 3 · Editar / Borrar trades
 # ================================================================
-with st.expander("📜 Historial de trades", expanded=False):
-    st.dataframe(df)
-
-# =========================================================
-#  SECCIÓN 4 · Editar / borrar
-# =========================================================
-with st.expander("✏️ Editar / Borrar", expanded=False):
+with st.expander("✏️ Editar / Borrar trades", expanded=False):
     if df.empty:
-        st.info("No hay trades.")
+        st.info("No hay trades para editar o borrar.")
     else:
-        idx = st.number_input("Índice (0‑based)", 0, df.shape[0]-1, step=1)
-        sel = df.loc[idx].to_dict()
-        st.json(sel)
+        sel_idx = st.number_input("Índice (0‑based)", 0, df.shape[0]-1, step=1)
+        sel_row = df.loc[sel_idx].to_dict()
+        st.write("Trade seleccionado:") 
+        st.json(sel_row)
 
+        # ---------- BORRAR ----------
         if st.button("Borrar este trade"):
-            df = df.drop(idx).reset_index(drop=True)
-            ws.clear()
-            ws.append_row(HEADER)
+            df = df.drop(sel_idx).reset_index(drop=True)
+            ws.clear(); ws.append_row(HEADER)
             ws.append_rows(df[HEADER].values.tolist())
-            st.success("Trade borrado")
-            df = get_all()
+            st.success("Trade borrado ✔️")
+            df = get_all()                       # recarga
 
-        with st.form("edit"):
+        # ---------- EDITAR ----------
+        with st.form("edit_form"):
+            st.write("Editar campos:")
             new_vals = {}
             for col in ["Fecha","Hora","Symbol","Type","Volume","Win/Loss/BE",
                         "Gross_USD","Screenshot","Comentarios","Post-Analysis",
                         "EOD","ErrorCategory","LossTradeReviewURL","IdeaMissedURL"]:
                 if col in ["Comentarios","Post-Analysis"]:
-                    new_vals[col] = st.text_area(col, sel[col])
+                    new_vals[col] = st.text_area(col, sel_row.get(col,""))
                 elif col in ["LossTradeReviewURL","IdeaMissedURL"]:
-                    new_vals[col] = st.text_input(col, sel.get(col,""))
+                    new_vals[col] = st.text_input(col, sel_row.get(col,""))
                 elif col == "Volume":
-                    new_vals[col] = st.number_input(col, 0.0, step=0.01, value=float(sel[col]))
+                    new_vals[col] = st.number_input(col, 0.0, step=0.01,
+                                                    value=float(sel_row.get(col,0)))
                 else:
-                    new_vals[col] = st.text_input(col, sel[col])
+                    new_vals[col] = st.text_input(col, sel_row.get(col,""))
 
-            resolved_chk = st.checkbox("Resolved", value=(sel["Resolved"].lower()=="yes"))
-            submitted = st.form_submit_button("Guardar")
+            res_chk   = st.checkbox("Resolved", value=(sel_row["Resolved"].lower()=="yes"))
+            submitted = st.form_submit_button("Guardar cambios")
+
             if submitted:
-                # recalculamos comisión / neto / R
+                # --- recalculamos comisión / neto / R ---
                 volume  = float(new_vals["Volume"])
                 gross   = float(new_vals["Gross_USD"])
                 comm    = volume*4.0
                 if new_vals["Win/Loss/BE"] == "BE":
-                    gross = comm
+                    gross = comm                     # BE definitivo
                 net_usd = gross - comm
                 r_val   = calculate_r(net_usd)
 
-                # actualizamos dict completo
-                sel.update(new_vals)
-                sel["Gross_USD"]  = gross
-                sel["Commission"] = comm
-                sel["USD"]        = net_usd
-                sel["R"]          = r_val
-                sel["Resolved"]   = "Yes" if resolved_chk else "No"
+                # actualiza dict completo
+                sel_row.update(new_vals)
+                sel_row["Gross_USD"]  = gross
+                sel_row["Commission"] = comm
+                sel_row["USD"]        = net_usd
+                sel_row["R"]          = r_val
+                sel_row["Resolved"]   = "Yes" if res_chk else "No"
 
-                update_row(idx, sel)
-                st.success("Cambios guardados")
-                df = get_all()
-# ------------- resto de tu app (historial, etc.) -------------
-st.dataframe(df)
+                update_row(sel_idx, sel_row)
+                st.success("Cambios guardados ✔️")
+                df = get_all()            # recarga para reflejar edición
+
+
+# ================================================================
+#  SECCIÓN 4 · Historial de trades
+# ================================================================
+with st.expander("📜 Historial de trades", expanded=False):
+    if df.empty:
+        st.info("Aún no hay registros.")
+    else:
+        st.dataframe(df, use_container_width=True)
