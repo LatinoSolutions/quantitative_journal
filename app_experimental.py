@@ -192,9 +192,14 @@ with st.expander("6) Loss Trade Reviews (galería)", expanded=False):
                 col_idx = 0
                 for url in urls:
                     if url:
-                        with img_cols[col_idx]:
-                            st.image(url, width=880)
-                        col_idx = (col_idx + 1) % len(img_cols)
+                        st.markdown(
+                            f'<a href="{url}" target="_blank">'
+                            f'<img src="{url}" width="880" style="margin:4px; border:1px solid #DDD;">'
+                            '</a>',
+                            unsafe_allow_html=True
+                        )
+                        st.caption("Abrir tamaño completo")
+
                 st.write("---")
 
 
