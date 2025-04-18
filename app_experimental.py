@@ -137,7 +137,7 @@ with st.expander("6) Loss Trade Reviews (galería)", expanded=False):
                 if url:
                     with cols[i%len(cols)]:
                         st.markdown(f'<a href="{url}" target="_blank">'
-                                    f'<img src="{url}" width="220" '
+                                    f'<img src="{url}" width="880" '
                                     'style="margin:3px;border:1px solid #ccc;"></a>',
                                     unsafe_allow_html=True)
             st.write("---")
