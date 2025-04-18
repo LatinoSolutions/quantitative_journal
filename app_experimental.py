@@ -43,46 +43,63 @@ initial_cap = 60000
 df_real = df_real.sort_values("Datetime")
 df_real["CumulUSD"] = initial_cap + df_real["USD"].cumsum()
 
-# ============================================================
-# 1) Métricas avanzadas (consecutivos, DD, Sharpe/Sortino) — sólo trades reales
-# ============================================================
+# ===============================================================
+# 1) Métricas de rendimiento avanzado
+#     · usa solo trades reales (df_real)
+#     · incluye Drawdown, consecutivos, Sharpe / Sortino
+#     · añade KPI de Break‑Even Outcome (Saved vs Missed)
+# ===============================================================
 with st.expander("1) Métricas de rendimiento avanzado", expanded=False):
-    # consecutivos
-    cw=cl=mxw=mxl=0
+    # ---------- Consecutive wins / losses ----------
+    cw = cl = mxw = mxl = 0
     for res in df_real["Win/Loss/BE"]:
-        if res=="Win": cw+=1; mxw=max(mxw,cw); cl=0
-        elif res=="Loss": cl+=1; mxl=max(mxl,cl); cw=0
-        else: cw=cl=0
-    c1,c2 = st.columns(2); c1.metric("Max Wins",mxw); c2.metric("Max Losses",mxl)
+        if res == "Win":
+            cw += 1;  mxw = max(mxw, cw); cl = 0
+        elif res == "Loss":
+            cl += 1;  mxl = max(mxl, cl); cw = 0
+        else:
+            cw = cl = 0
+    c1, c2 = st.columns(2)
+    c1.metric("Max Wins consecutivos", mxw)
+    c2.metric("Max Losses consecutivos", mxl)
 
-    dd = drawdown(df_real["CumulUSD"])
-    st.write(f"**Máx DD:** {round(dd.max(),2)} USD / "
-             f"{round(100*dd.max()/initial_cap,2)} %")
+    # ---------- Drawdown ----------
+    dd = (df_real["CumulUSD"].cummax() - df_real["CumulUSD"])
+    max_dd = dd.max()
+    st.write(f"**Máx Drawdown:** {round(max_dd,2)} USD "
+             f"({round(100*max_dd/initial_cap,2)} %)")
+    fig_dd = go.Figure(go.Scatter(x=df_real["Datetime"], y=dd,
+                                  mode="lines", line=dict(color="red")))
+    fig_dd.update_layout(title="Drawdown over time")
+    st.plotly_chart(fig_dd, use_container_width=True)
+
+    # ---------- Sharpe / Sortino (aprox diarios) ----------
+    daily_ret = df_real.groupby(df_real["Datetime"].dt.date)["USD"].sum() / initial_cap
+    sharpe  = daily_ret.mean() / daily_ret.std(ddof=1) if daily_ret.std(ddof=1) else 0
+    downside = daily_ret[daily_ret<0].std(ddof=1)
+    sortino = daily_ret.mean() / downside if downside else 0
+    st.write(f"**Sharpe (aprox):** {round(sharpe,2)}  |  "
+             f"**Sortino (aprox):** {round(sortino,2)}")
+
+    # ---------- Break‑Even Outcome KPI ----------
+    be_saved  = ((df_real["Win/Loss/BE"]=="BE") &
+                 (df_real["BEOutcome"]=="SavedCapital")).sum()
+    be_missed = ((df_real["Win/Loss/BE"]=="BE") &
+                 (df_real["BEOutcome"]=="MissedOpportunity")).sum()
+
+    st.write("#### Break‑Even Outcomes")
+    st.write(f"**Saved Capital:** {be_saved}   |   "
+             f"**Missed Opportunity:** {be_missed}")
+
+    be_kpi_df = pd.DataFrame({
+        "Outcome": ["SavedCapital", "MissedOpportunity"],
+        "Count":   [be_saved, be_missed]
+    })
     st.plotly_chart(
-        go.Figure(go.Scatter(x=df_real["Datetime"],y=dd,mode="lines",
-                             line=dict(color="red"))).update_layout(
-            title="Drawdown over time"),
-            # ---- Break‑Even Outcome KPI ----
-be_saved  = ((df_real["Win/Loss/BE"]=="BE") &
-             (df_real["BEOutcome"]=="SavedCapital")).sum()
-be_missed = ((df_real["Win/Loss/BE"]=="BE") &
-             (df_real["BEOutcome"]=="MissedOpportunity")).sum()
-
-st.write("##### Break‑Even Outcomes")
-st.write(f"**Saved Capital:** {be_saved}   |   "
-         f"**Missed Opportunity:** {be_missed}")
-
-# Pequeño gráfico de barras
-be_kpi_df = pd.DataFrame({
-        "Outcome": ["SavedCapital","MissedOpportunity"],
-        "Count": [be_saved, be_missed]
-})
-st.plotly_chart(
-    px.bar(be_kpi_df, x="Outcome", y="Count",
-           title="BE Outcome count", text="Count"),
-    use_container_width=True
-))
-
+        px.bar(be_kpi_df, x="Outcome", y="Count",
+               title="Conteo Break‑Even Outcome", text="Count"),
+        use_container_width=True
+    )
 
 # ============================================================
 # 2) Resúmenes semanales / mensuales (trades reales)
