@@ -156,7 +156,7 @@ with st.expander("7) Miedito Trades", expanded=False):
             if not urls or urls==[""]:
                 st.caption("Sin imagen")
             for url in urls:
-                if url:
+                if url: 
                     st.markdown(f'<a href="{url}" target="_blank">'
                                 f'<img src="{url}" width="220" '
                                 'style="margin:3px;border:1px solid #ccc;"></a>',
