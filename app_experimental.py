@@ -108,14 +108,29 @@ with st.expander("2) Resúmenes semanales / mensuales", expanded=False):
                     use_container_width=True)
 
 # ===============================================================
-# 3) Calendario / timeline
+# 3) Calendario / Timeline de trades
 # ===============================================================
-with st.expander("3) Calendario / Timeline", expanded=False):
-    daily = df.groupby(df["Datetime"].dt.date)["USD"].agg(Trades="count",NetPNL="sum").reset_index()
-    st.plotly_chart(px.bar(daily,x="DateOnly",y="Trades",title="# Trades por día"),
-                    use_container_width=True)
-    st.plotly_chart(px.bar(daily,x="DateOnly",y="NetPNL",title="PNL diario"),
-                    use_container_width=True)
+with st.expander("3) Calendario / Timeline de trades", expanded=False):
+    # Agrupamos por día
+    daily = df.groupby(df["Datetime"].dt.date).agg(
+        Trades=("USD", "count"),
+        NetPNL=("USD", "sum")
+    ).reset_index().rename(columns={"Datetime": "DateOnly"})   # <<< FIX aquí
+
+    st.write("#### Nº de trades por día")
+    st.plotly_chart(
+        px.bar(daily, x="DateOnly", y="Trades", title="# Trades por día",
+               labels={"DateOnly": "Día", "Trades": "Cantidad"}),
+        use_container_width=True
+    )
+
+    st.write("#### PnL diario")
+    st.plotly_chart(
+        px.bar(daily, x="DateOnly", y="NetPNL", title="PNL diario",
+               labels={"DateOnly": "Día", "NetPNL": "PNL"}),
+        use_container_width=True
+    )
+
 
 # ===============================================================
 # 4) Análisis por symbol / hora
