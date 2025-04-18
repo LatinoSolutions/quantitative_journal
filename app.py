@@ -98,55 +98,76 @@ with st.expander("📊 Métricas / KPIs", expanded=False):
     if df.empty:
         st.info("Aún no hay trades.")
     else:
-        # ---------------- cálculo base ----------------
+        # ---- CÁLCULOS BÁSICOS ----
         df["USD"] = pd.to_numeric(df["USD"], errors="coerce")
         total   = len(df)
         wins    = (df["Win/Loss/BE"]=="Win").sum()
         losses  = (df["Win/Loss/BE"]=="Loss").sum()
         be_tr   = (df["Win/Loss/BE"]=="BE").sum()
         win_rate= round(100*wins/total,2) if total else 0
+
         gross_p = df[df["USD"]>0]["USD"].sum()
         gross_l = df[df["USD"]<0]["USD"].sum()
         net_p   = df["USD"].sum()
         prof_factor = round(abs(gross_p/gross_l),2) if gross_l else 0
         expectancy  = round(df["USD"].mean(),2) if total else 0
-        payoff      = round(df[df["USD"]>0]["USD"].mean() / abs(df[df["USD"]<0]["USD"].mean()),2) if losses else 0
-        risk_amt    = 60000*0.0025
-        expectancy_R= round(expectancy/risk_amt,2) if risk_amt else 0
+        payoff      = round(df[df["USD"]>0]["USD"].mean() /
+                            abs(df[df["USD"]<0]["USD"].mean()),2) if losses else 0
 
-        # ---------------- KPIs display ----------------
+        # ---- CAPITAL INICIAL y OBJETIVO ----
+        initial_cap  = 60000
+        monthly_goal = initial_cap*0.14      # +14 %
+        current_eq   = initial_cap + net_p
+        pct_change   = round(100*(current_eq-initial_cap)/initial_cap,2)
+        usd_to_goal  = monthly_goal - net_p
+        pct_to_goal  = round(100*usd_to_goal/initial_cap,2) if usd_to_goal>0 else 0
+
+        # ---- R's ----
+        risk_amt     = initial_cap*0.0025    # 0.25 %
+        total_R      = round(net_p/risk_amt,2)
+        R_to_goal    = round(usd_to_goal/risk_amt,2) if usd_to_goal>0 else 0
+        trades13     = max(0,int(np.ceil(R_to_goal/3))) if R_to_goal>0 else 0
+        trades14     = max(0,int(np.ceil(R_to_goal/4))) if R_to_goal>0 else 0
+        trades15     = max(0,int(np.ceil(R_to_goal/5))) if R_to_goal>0 else 0
+
+        # ---- DISPLAY ----
         k1,k2,k3,k4 = st.columns(4)
         k1.metric("Total Trades", total)
         k2.metric("Win Rate", f"{win_rate}%")
         k3.metric("Profit Factor", prof_factor)
-        k4.metric("Expectancy", f"{expectancy} USD")
+        k4.metric("Payoff ratio", payoff)
 
         k5,k6,k7,k8 = st.columns(4)
-        k5.metric("Gross Profit", round(gross_p,2))
-        k6.metric("Gross Loss", round(gross_l,2))
-        k7.metric("Net Profit",  round(net_p,2))
-        k8.metric("Payoff ratio", payoff)
+        k5.metric("Net Profit",  f"{round(net_p,2)} USD")
+        k6.metric("Equity actual", f"{round(current_eq,2)} USD", f"{pct_change}%")
+        k7.metric("Meta +14 %", f"{round(monthly_goal,2)} USD")
+        k8.metric("Faltan", f"{round(usd_to_goal,2)} USD", f"{pct_to_goal}%")
 
-        k9,k10 = st.columns(2)
-        k9.metric("Expectancy R", expectancy_R)
-        # % días verdes
-        daily = df.groupby(df["Datetime"].dt.date)["USD"].sum()
-        pct_green = round(100*(daily>0).sum()/len(daily),1) if len(daily) else 0
-        k10.metric("% días verdes", f"{pct_green}%")
+        k9,k10,k11,k12 = st.columns(4)
+        k9.metric("R acumuladas", total_R)
+        k10.metric("R faltantes", R_to_goal)
+        k11.metric("Trades 1:3", trades13)
+        k12.metric("Trades 1:4 / 1:5", f"{trades14}  |  {trades15}")
 
         # Pie Win/Loss/BE
-        fig_pie = px.pie(names=["Win","Loss","BE"], values=[wins,losses,be_tr], title="Distribución")
+        fig_pie = px.pie(names=["Win","Loss","BE"], values=[wins,losses,be_tr],
+                         title="Distribución Win/Loss/BE")
         st.plotly_chart(fig_pie, use_container_width=True)
 
-        # Equity curve + High‑Water Mark
-        df = df.sort_values("Datetime") ; df["CumulUSD"] = 60000 + df["USD"].cumsum()
-        hwm = df["CumulUSD"].cummax()
+        # Equity + High‑Water Mark
+        df_sorted = df.sort_values("Datetime")
+        df_sorted["Equity"] = initial_cap + df_sorted["USD"].cumsum()
+        hwm = df_sorted["Equity"].cummax()
+
         fig_eq = go.Figure()
-        fig_eq.add_trace(go.Scatter(x=df["Datetime"], y=df["CumulUSD"], mode="lines", name="Equity"))
-        fig_eq.add_trace(go.Scatter(x=df["Datetime"], y=hwm, mode="lines", name="High‑Water Mark",
+        fig_eq.add_trace(go.Scatter(x=df_sorted["Datetime"], y=df_sorted["Equity"],
+                                    mode="lines", name="Equity"))
+        fig_eq.add_trace(go.Scatter(x=df_sorted["Datetime"], y=hwm,
+                                    mode="lines", name="High‑Water Mark",
                                     line=dict(dash="dash", color="green")))
         fig_eq.update_layout(title="Evolución de Equity", showlegend=True)
         st.plotly_chart(fig_eq, use_container_width=True)
+
 
 # ================================================================
 #  SECCIÓN 3 · Historial
