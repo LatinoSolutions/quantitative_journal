@@ -150,49 +150,60 @@ with st.expander("5) Post‑Analysis · Categorías de error", expanded=False):
         st.info("Agrega la columna ErrorCategory en tu hoja.")
 
 # ===============================================================
-# 6) Loss Trade Reviews – galería mini‑imágenes
+# 6) Loss Trade Reviews – galería agrupada
 # ===============================================================
-with st.expander("6) Loss Trade Reviews (galería)", expanded=False):
+with st.expander("6) Loss Trade Reviews (galería)", expanded=False):
     if "LossTradeReviewURL" not in df.columns:
         st.warning("No existe la columna LossTradeReviewURL.")
     else:
-        ltr_df = df[df["LossTradeReviewURL"].str.strip()!= ""].copy()
+        ltr_df = df[(df["LossTradeReviewURL"].str.strip() != "") &
+                    (df["Win/Loss/BE"] == "Loss")].copy()
         if ltr_df.empty:
-            st.info("Aún no hay Loss Trade Reviews.")
+            st.info("No hay Loss Trade Reviews.")
         else:
-            for i,row in ltr_df.iterrows():
-                st.write(f"**{row['Fecha']} {row['Hora']}** – {row['Symbol']}")
+            # opcional: filtrar por categoría
+            cats = [c for c in ltr_df["ErrorCategory"].unique() if c]
+            selected = st.multiselect("Filtrar por ErrorCategory", cats, default=cats)
+            if selected:
+                ltr_df = ltr_df[ltr_df["ErrorCategory"].isin(selected)]
+
+            # recorrer trades
+            for _, row in ltr_df.sort_values("Datetime", ascending=False).iterrows():
+                st.write(f"**{row['Fecha']} {row['Hora']} – {row['Symbol']}**")
+                st.write(f"Categoría: {row.get('ErrorCategory','–')}  |  "
+                         f"Resolved: {row.get('Resolved','No')}")
                 urls = [u.strip() for u in row["LossTradeReviewURL"].split(",")]
+                img_cols = st.columns(min(3, len(urls)))  # 3 miniaturas por fila
+                col_idx = 0
                 for url in urls:
-                    if url: st.image(url, width=250)
+                    if url:
+                        with img_cols[col_idx]:
+                            st.image(url, width=220)
+                        col_idx = (col_idx + 1) % len(img_cols)
                 st.write("---")
 
+
 # ===============================================================
-# 7) EOD – Presentaciones Canva (tarjetas)
+# 7) EOD (End‑of‑Day) – presentaciones Canva
 # ===============================================================
-with st.expander("7) EOD (End of Day) – presentaciones", expanded=False):
+with st.expander("7) EOD (Study Cases Canva)", expanded=False):
     if "EOD" not in df.columns:
         st.warning("No existe la columna EOD.")
     else:
-        eod_df = df[df["EOD"].str.strip()!= ""].copy()
+        eod_df = df[df["EOD"].str.strip() != ""].copy()
         if eod_df.empty:
             st.info("No hay EOD registrados.")
         else:
-            cats = [c for c in eod_df["ErrorCategory"].unique() if c]
-            flt  = st.multiselect("Filtrar por ErrorCategory", cats, default=cats)
-            if flt: eod_df = eod_df[eod_df["ErrorCategory"].isin(flt)]
-            st.write(f"{len(eod_df)} EOD encontrados")
-
-            cards_per_row = 2
-            rows = [eod_df.iloc[i:i+cards_per_row] for i
-                    in range(0,len(eod_df),cards_per_row)]
-            for chunk in rows:
-                cols = st.columns(cards_per_row)
-                for ix,(idx,tr) in enumerate(chunk.iterrows()):
-                    with cols[ix]:
-                        st.write(f"**{tr['Fecha']}** – {tr['Symbol']}")
-                        st.write(f"Categoría: {tr.get('ErrorCategory','')}")
-                        st.markdown(f"[Abrir EOD]({tr['EOD']})")
+            # Tarjetas 2 por fila, orden cronológico inverso
+            cards = [eod_df.iloc[i:i+2] for i in range(0, len(eod_df), 2)]
+            for chunk in cards:
+                cols = st.columns(2)
+                for idx, (_, tr) in enumerate(chunk.iterrows()):
+                    with cols[idx]:
+                        st.write(f"**{tr['Fecha']} {tr['Hora']} – {tr['Symbol']}**")
+                        st.write(f"Categoría: {tr.get('ErrorCategory','–')}")
+                        st.markdown(f"[Abrir EOD Canva]({tr['EOD']})")
                         st.write("---")
+
 
 st.write("---\n*Fin del modo experimental.*")
