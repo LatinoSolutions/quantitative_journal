@@ -1,403 +1,198 @@
+# -------------------  app_experimental.py  -------------------
 import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from datetime import datetime, timedelta
+import pandas as pd, numpy as np
+import plotly.express as px, plotly.graph_objects as go
 from google.oauth2.service_account import Credentials
 import gspread
 
-###############################
-# CONFIGURACIÓN DE LA APP
-###############################
-st.set_page_config(
-    page_title="Quantitative Journal - Experimental",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# -------------------------------------------------------------
+# CONFIGURACIÓN
+# -------------------------------------------------------------
+st.set_page_config(page_title="Quantitative Journal – Experimental",
+                   layout="wide", initial_sidebar_state="expanded")
 
-###############################
-# CONEXIÓN A GOOGLE SHEETS
-###############################
-scope = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-]
-creds_dict = st.secrets["quantitative_journal"]
-credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
-gc = gspread.authorize(credentials)
+scope      = ["https://www.googleapis.com/auth/spreadsheets",
+              "https://www.googleapis.com/auth/drive"]
+creds      = Credentials.from_service_account_info(
+                st.secrets["quantitative_journal"], scopes=scope)
+gc         = gspread.authorize(creds)
+ws         = gc.open_by_key("1D4AlYBD1EClp0gGe0qnxr8NeGMbpSvdOx8yHimQDmbE"
+                ).worksheet("sheet1")
 
-SPREADSHEET_KEY = "1D4AlYBD1EClp0gGe0qnxr8NeGMbpSvdOx8yHimQDmbE"  # Ajusta al tuyo
-sh = gc.open_by_key(SPREADSHEET_KEY)
-worksheet = sh.worksheet("sheet1")
-
-###############################
-# FUNCIONES AUXILIARES
-###############################
-def get_all_trades() -> pd.DataFrame:
-    data = worksheet.get_all_records()
-    df = pd.DataFrame(data)
-    if not df.empty and "Fecha" in df.columns and "Hora" in df.columns:
-        df["Datetime"] = pd.to_datetime(df["Fecha"] + " " + df["Hora"], errors="coerce")
+def get_all():
+    df = pd.DataFrame(ws.get_all_records())
+    if not df.empty and "Fecha" in df and "Hora" in df:
+        df["Datetime"] = pd.to_datetime(df["Fecha"]+" "+df["Hora"], errors="coerce")
     return df
 
-def calculate_drawdown(equity_series: pd.Series):
-    """
-    Retorna un pd.Series con la cantidad de drawdown en cada punto.
-    drawdown = (peak_so_far - current_equity)
-    """
-    peak = equity_series.cummax()
-    drawdown = peak - equity_series
-    return drawdown
+def calculate_drawdown(equity):
+    peak = equity.cummax()
+    return peak - equity
 
-def calculate_sharpe(returns_series, rf=0.0):
-    """
-    Calcula Sharpe Ratio = (mean(returns) - rf) / std(returns).
-    Supone returns_series diario o semanal. 
-    rf = tasa libre de riesgo (0 por simplificar).
-    """
-    avg_ret = returns_series.mean()
-    std_ret = returns_series.std(ddof=1)
-    if std_ret == 0:
-        return 0
-    sharpe = (avg_ret - rf) / std_ret
-    return round(sharpe, 2)
+def sharpe_ratio(rets, rf=0):
+    std = rets.std(ddof=1)
+    return round((rets.mean()-rf)/std,2) if std!=0 else 0
 
-def calculate_sortino(returns_series, rf=0.0):
-    """
-    Sortino ratio = (mean(returns)-rf) / std(returns<0).
-    """
-    avg_ret = returns_series.mean()
-    neg_ret = returns_series[returns_series < 0]
-    std_neg = neg_ret.std(ddof=1)
-    if std_neg == 0:
-        return 0
-    sortino = (avg_ret - rf) / std_neg
-    return round(sortino, 2)
+def sortino_ratio(rets, rf=0):
+    downside = rets[rets<0].std(ddof=1)
+    return round((rets.mean()-rf)/downside,2) if downside!=0 else 0
 
-def get_week_number(date):
-    # Devuelve un string "YYYY-WW" para agrupar
-    return f"{date.isocalendar().year}-W{date.isocalendar().week}"
+def week_tag(dt):  return f"{dt.isocalendar().year}-W{dt.isocalendar().week}"
+def month_tag(dt): return dt.strftime("%Y-%m")
 
-def get_month_number(date):
-    # Devuelve un string "YYYY-MM"
-    return date.strftime("%Y-%m")
+# -------------------------------------------------------------
+df = get_all()
+st.title("Quantitative Journal – Experimental Features")
 
-###############################
-# LÓGICA PRINCIPAL
-###############################
-st.title("Quantitative Journal - Experimental Features")
-
-df = get_all_trades()
 if df.empty:
-    st.warning("No hay datos registrados en la hoja. Agrega trades y luego vuelve.")
+    st.warning("No hay datos.")
     st.stop()
 
-# Convertir a numérico
-for col_name in ["Volume","Gross_USD","Commission","USD","R"]:
-    if col_name in df.columns:
-        df[col_name] = pd.to_numeric(df[col_name], errors="coerce")
+# -----------------------------------------------------------------
+# Limpieza numérica
+for col in ["Volume","Gross_USD","Commission","USD","R"]:
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
 
-# Ordenar por fecha
 df = df.sort_values("Datetime").reset_index(drop=True)
+initial_cap = 60000
+df["CumulUSD"] = initial_cap + df["USD"].cumsum()
 
-# CAPITAL INICIAL (Ajusta si deseas)
-initial_capital = 60000
-
-# Calculamos la curva de equity
-df["Cumulative_USD"] = initial_capital + df["USD"].cumsum()
-
-###############################
-# 1. Métricas de rendimiento avanzado
-###############################
+# ===============================================================
+# 1) Métricas avanzadas (consecutivos, DD, Sharpe, Sortino)
+# ===============================================================
 with st.expander("1) Métricas de rendimiento avanzado", expanded=False):
-    st.write("### Consecutive Wins / Losses")
-    consecutive_w = 0
-    max_consecutive_w = 0
-    consecutive_l = 0
-    max_consecutive_l = 0
+    consec_w = consec_l = max_w = max_l = 0
+    for res in df["Win/Loss/BE"]:
+        if res=="Win":
+            consec_w +=1;  max_w=max(max_w,consec_w); consec_l=0
+        elif res=="Loss":
+            consec_l +=1;  max_l=max(max_l,consec_l); consec_w=0
+        else:
+            consec_w=consec_l=0
+    c1,c2 = st.columns(2)
+    c1.metric("Max Wins consecutivos", max_w)
+    c2.metric("Max Loss consecutivos", max_l)
 
-    for i, row in df.iterrows():
-        result = row.get("Win/Loss/BE","")
-        if result == "Win":
-            consecutive_w += 1
-            max_consecutive_w = max(max_consecutive_w, consecutive_w)
-            consecutive_l = 0
-        elif result == "Loss":
-            consecutive_l += 1
-            max_consecutive_l = max(max_consecutive_l, consecutive_l)
-            consecutive_w = 0
-        else:  # BE
-            consecutive_w = 0
-            consecutive_l = 0
-
-    col1, col2 = st.columns(2)
-    col1.metric("Max consecutive Wins", max_consecutive_w)
-    col2.metric("Max consecutive Losses", max_consecutive_l)
-
-    st.write("### Drawdown")
-    dd_series = calculate_drawdown(df["Cumulative_USD"])
-    max_dd = dd_series.max()  
-    max_dd_pct = (max_dd / initial_capital) * 100 if initial_capital != 0 else 0
-    st.write(f"**Máximo Drawdown**: {round(max_dd,2)} USD / {round(max_dd_pct,2)}%")
-
+    dd = calculate_drawdown(df["CumulUSD"])
+    st.write(f"**Máx Drawdown:** {round(dd.max(),2)} USD / "
+             f"{round(100*dd.max()/initial_cap,2)} %")
     fig_dd = go.Figure()
-    fig_dd.add_trace(go.Scatter(
-        x=df["Datetime"],
-        y=dd_series,
-        mode="lines",
-        name="Drawdown (USD)",
-        line=dict(color="red")
-    ))
-    fig_dd.update_layout(title="Drawdown Over Time", xaxis_title="Fecha", yaxis_title="Drawdown (USD)")
+    fig_dd.add_trace(go.Scatter(x=df["Datetime"], y=dd, mode="lines",
+                                name="Drawdown", line=dict(color="red")))
+    fig_dd.update_layout(title="Drawdown over time")
     st.plotly_chart(fig_dd, use_container_width=True)
 
-    st.write("### Sharpe / Sortino (aprox)")
-    df["DateOnly"] = df["Datetime"].dt.date
-    daily_pnl = df.groupby("DateOnly")["USD"].sum().reset_index()
-    daily_pnl["Return"] = daily_pnl["USD"] / initial_capital
+    daily = df.groupby(df["Datetime"].dt.date)["USD"].sum()/initial_cap
+    st.write(f"**Sharpe (aprox):** {sharpe_ratio(daily)}")
+    st.write(f"**Sortino (aprox):** {sortino_ratio(daily)}")
 
-    sharpe = calculate_sharpe(daily_pnl["Return"])
-    sortino = calculate_sortino(daily_pnl["Return"])
-    st.write(f"**Sharpe Ratio (aprox)**: {sharpe}")
-    st.write(f"**Sortino Ratio (aprox)**: {sortino}")
-
-###############################
-# 2. Resúmenes semanales / mensuales
-###############################
+# ===============================================================
+# 2) Resúmenes semanales / mensuales
+# ===============================================================
 with st.expander("2) Resúmenes semanales / mensuales", expanded=False):
-    df["WeekTag"] = df["Datetime"].apply(lambda x: get_week_number(x) if pd.notnull(x) else "")
-    weekly_stats = df.groupby("WeekTag").agg(
-        Trades=("USD","count"),
-        NetPNL=("USD","sum"),
-        VolumeSum=("Volume","sum") if "Volume" in df.columns else ("USD","count"),
-    ).reset_index()
+    df["WeekTag"]  = df["Datetime"].apply(week_tag)
+    weekly = df.groupby("WeekTag").agg(Trades=("USD","count"),
+                                       NetPNL=("USD","sum"),
+                                       Volume=("Volume","sum")).reset_index()
+    st.write("### Resumen semanal"); st.dataframe(weekly)
+    st.plotly_chart(px.bar(weekly,x="WeekTag",y="NetPNL",title="PNL semanal"),
+                    use_container_width=True)
 
-    st.write("### Resumen Semanal")
-    st.dataframe(weekly_stats)
+    df["MonthTag"] = df["Datetime"].apply(month_tag)
+    monthly = df.groupby("MonthTag").agg(Trades=("USD","count"),
+                                         NetPNL=("USD","sum"),
+                                         Volume=("Volume","sum")).reset_index()
+    st.write("### Resumen mensual"); st.dataframe(monthly)
+    st.plotly_chart(px.bar(monthly,x="MonthTag",y="NetPNL",title="PNL mensual"),
+                    use_container_width=True)
 
-    fig_week = px.bar(
-        weekly_stats,
-        x="WeekTag",
-        y="NetPNL",
-        title="PNL semanal",
-        labels={"WeekTag":"Semana","NetPNL":"PNL"}
-    )
-    st.plotly_chart(fig_week, use_container_width=True)
+# ===============================================================
+# 3) Calendario / timeline
+# ===============================================================
+with st.expander("3) Calendario / Timeline", expanded=False):
+    daily = df.groupby(df["Datetime"].dt.date)["USD"].agg(Trades="count",NetPNL="sum").reset_index()
+    st.plotly_chart(px.bar(daily,x="DateOnly",y="Trades",title="# Trades por día"),
+                    use_container_width=True)
+    st.plotly_chart(px.bar(daily,x="DateOnly",y="NetPNL",title="PNL diario"),
+                    use_container_width=True)
 
-    df["MonthTag"] = df["Datetime"].apply(lambda x: get_month_number(x) if pd.notnull(x) else "")
-    monthly_stats = df.groupby("MonthTag").agg(
-        Trades=("USD","count"),
-        NetPNL=("USD","sum"),
-        VolumeSum=("Volume","sum") if "Volume" in df.columns else ("USD","count"),
-    ).reset_index()
-
-    st.write("### Resumen Mensual")
-    st.dataframe(monthly_stats)
-
-    fig_month = px.bar(
-        monthly_stats,
-        x="MonthTag",
-        y="NetPNL",
-        title="PNL mensual",
-        labels={"MonthTag":"Mes","NetPNL":"PNL"}
-    )
-    st.plotly_chart(fig_month, use_container_width=True)
-
-    st.write("""
-    *Tip: podrías “congelar” datos al inicio de cada semana/mes, 
-    para guardar un 'snapshot' y hacer un reporte especial.*
-    """)
-
-###############################
-# 3. Calendario / Timeline de trades
-###############################
-with st.expander("3) Calendario / Timeline de trades", expanded=False):
-    df["DateOnly"] = df["Datetime"].dt.date
-    daily_counts = df.groupby("DateOnly").agg(
-        Trades=("USD","count"),
-        NetPNL=("USD","sum")
-    ).reset_index()
-
-    st.write("#### # de trades por día")
-    fig_trades_per_day = px.bar(
-        daily_counts, x="DateOnly", y="Trades",
-        title="Trades por Día",
-        labels={"DateOnly":"Día","Trades":"Cantidad de Trades"}
-    )
-    st.plotly_chart(fig_trades_per_day, use_container_width=True)
-
-    st.write("#### PnL diario")
-    fig_pnl_per_day = px.bar(
-        daily_counts, x="DateOnly", y="NetPNL",
-        title="PNL por Día",
-        labels={"DateOnly":"Día","NetPNL":"PNL Diario"}
-    )
-    st.plotly_chart(fig_pnl_per_day, use_container_width=True)
-
-    st.info("""
-    Si deseas un calendario más vistoso (con celdas de calendario 
-    y gradientes de color), podrías usar librerías como 'calplot' 
-    en un entorno local, o algún componente de Streamlit, 
-    pero no viene por defecto.
-    """)
-
-###############################
-# 4. Análisis por Symbol / Hora
-###############################
+# ===============================================================
+# 4) Análisis por symbol / hora
+# ===============================================================
 with st.expander("4) Análisis por Symbol / Hora", expanded=False):
-    if "Symbol" in df.columns:
-        symbol_stats = df.groupby("Symbol").agg(
-            Trades=("USD","count"),
-            NetPNL=("USD","sum")
-        ).reset_index()
-        st.write("#### PnL por Symbol")
-        fig_symbol = px.bar(
-            symbol_stats, x="Symbol", y="NetPNL",
-            title="PNL por Símbolo",
-            labels={"Symbol":"Símbolo","NetPNL":"PNL"},
-            color="Symbol"
-        )
-        st.plotly_chart(fig_symbol, use_container_width=True)
+    if "Symbol" in df:
+        st.plotly_chart(px.bar(df.groupby("Symbol")["USD"].sum().reset_index(),
+                               x="Symbol",y="USD",title="PNL por símbolo",
+                               color="Symbol"), use_container_width=True)
+    if "Hora" in df:
+        df["HourInt"] = pd.to_datetime(df["Hora"],format="%H:%M:%S",
+                                       errors="coerce").dt.hour
+        st.plotly_chart(px.bar(df.groupby("HourInt")["USD"].sum().reset_index(),
+                               x="HourInt",y="USD",title="PNL por hora"),
+                        use_container_width=True)
 
-    if "Hora" in df.columns:
-        df["HourInt"] = pd.to_datetime(df["Hora"], format="%H:%M:%S", errors="coerce").dt.hour
-        hour_stats = df.groupby("HourInt").agg(
-            Trades=("USD","count"),
-            NetPNL=("USD","sum")
-        ).reset_index()
-        st.write("#### PnL por Hora del día")
-        fig_hour = px.bar(
-            hour_stats, x="HourInt", y="NetPNL",
-            title="PNL por Hora",
-            labels={"HourInt":"Hora (0-23)","NetPNL":"PNL"}
-        )
-        st.plotly_chart(fig_hour, use_container_width=True)
-    else:
-        st.warning("No existe la columna 'Hora'. Imposible analizar por hora.")
-
-###############################
-# 5. Mejora de Post-Analysis (Etiquetas)
-###############################
-with st.expander("5) Post-Analysis y Etiquetas", expanded=False):
-    st.write("""
-    Si creaste una columna 'ErrorCategory' en la hoja,
-    aquí podríamos agrupar las pérdidas por tipo de error. 
-    Ejemplo: "Psicológico", "Noticia", "FOMO", "Técnico", etc.
-    """)
-
-    if "ErrorCategory" in df.columns:
-        cat_loss_stats = df[df["USD"]<0].groupby("ErrorCategory").agg(
-            LossTrades=("USD","count"),
-            LossSum=("USD","sum")
-        ).reset_index()
-
-        if cat_loss_stats.empty:
-            st.info("No hay pérdidas registradas o no hay categorías de error.")
+# ===============================================================
+# 5) Post‑Analysis / Etiquetas (Errores)
+# ===============================================================
+with st.expander("5) Post‑Analysis · Categorías de error", expanded=False):
+    if "ErrorCategory" in df:
+        loss_by_cat = df[df["USD"]<0].groupby("ErrorCategory")["USD"
+                         ].sum().reset_index().rename(columns={"USD":"LossSum"})
+        if loss_by_cat.empty:
+            st.info("No hay pérdidas categorizadas.")
         else:
-            st.write("#### Pérdidas por categoría de error")
-            st.dataframe(cat_loss_stats)
-
-            fig_cat = px.bar(
-                cat_loss_stats, x="ErrorCategory", y="LossSum",
-                title="Suma de pérdidas por Categoría",
-                labels={"ErrorCategory":"Categoría","LossSum":"USD Perdidos"},
-                color="ErrorCategory"
-            )
-            st.plotly_chart(fig_cat, use_container_width=True)
+            st.dataframe(loss_by_cat)
+            st.plotly_chart(px.bar(loss_by_cat,x="ErrorCategory",y="LossSum",
+                                   title="Pérdidas por categoría",
+                                   color="ErrorCategory"), use_container_width=True)
     else:
-        st.info("No existe la columna 'ErrorCategory' en la hoja. Crea la columna y etiquétalos.")
+        st.info("Agrega la columna ErrorCategory en tu hoja.")
 
-###############################
-# 6. Study Cases con mini-imágenes
-###############################
-with st.expander("6) Study Cases con imágenes", expanded=False):
-    st.write("""
-    Asumiendo que tienes una columna 'StudyCaseImageURL' 
-    con links directos a una imagen (PNG, JPG, etc.). 
-    Mostramos miniaturas y un link.
-    """)
-
-    if "StudyCaseImageURL" not in df.columns:
-        st.warning("No existe la columna 'StudyCaseImageURL'. Crea la columna y agrega enlaces a tus imágenes.")
+# ===============================================================
+# 6) Loss Trade Reviews – galería mini‑imágenes
+# ===============================================================
+with st.expander("6) Loss Trade Reviews (galería)", expanded=False):
+    if "LossTradeReviewURL" not in df.columns:
+        st.warning("No existe la columna LossTradeReviewURL.")
     else:
-        df_imgs = df[df["StudyCaseImageURL"].notnull() & (df["StudyCaseImageURL"]!="")].copy()
-        if df_imgs.empty:
-            st.info("No hay Study Cases con imagen todavía.")
+        ltr_df = df[df["LossTradeReviewURL"].str.strip()!= ""].copy()
+        if ltr_df.empty:
+            st.info("Aún no hay Loss Trade Reviews.")
         else:
-            for i, row in df_imgs.iterrows():
-                fecha = row.get("Fecha","")
-                symbol = row.get("Symbol","")
-                img_url = row.get("StudyCaseImageURL","")
-                st.write(f"**Trade**: {i} | {fecha} | {symbol}")
-                st.image(img_url, width=300)
-                st.markdown(f"[Ver tamaño completo]({img_url})")
+            for i,row in ltr_df.iterrows():
+                st.write(f"**{row['Fecha']} {row['Hora']}** – {row['Symbol']}")
+                urls = [u.strip() for u in row["LossTradeReviewURL"].split(",")]
+                for url in urls:
+                    if url: st.image(url, width=250)
                 st.write("---")
 
-###############################
-# 7. Panel de Study Cases (tarjetas)
-###############################
-with st.expander("7) Panel de Study Cases (tarjetas)", expanded=False):
-    st.write("""
-    Un panel estilo 'tarjetas' que filtra por `ErrorCategory` 
-    y muestra `StudyCaseLink` y `StudyCaseImageURL`. 
-    """)
-    # Si no existen las columnas, mostramos aviso
-    needed_cols = ["StudyCaseLink","ErrorCategory","StudyCaseImageURL"]
-    missing_cols = [c for c in needed_cols if c not in df.columns]
-    if missing_cols:
-        st.warning(f"No existen las columnas: {missing_cols}. Crea/edita tu hoja para usarlas.")
+# ===============================================================
+# 7) EOD – Presentaciones Canva (tarjetas)
+# ===============================================================
+with st.expander("7) EOD (End of Day) – presentaciones", expanded=False):
+    if "EOD" not in df.columns:
+        st.warning("No existe la columna EOD.")
     else:
-        # Filtramos solo trades con StudyCaseLink != ""
-        df_sc = df[df["StudyCaseLink"].notnull() & (df["StudyCaseLink"]!="")].copy()
-        df_sc = df_sc.sort_values("Datetime", ascending=False).reset_index(drop=True)
-        if df_sc.empty:
-            st.info("No hay Study Cases registrados (StudyCaseLink vacío).")
+        eod_df = df[df["EOD"].str.strip()!= ""].copy()
+        if eod_df.empty:
+            st.info("No hay EOD registrados.")
         else:
-            # MULTISELECT para filtrar ErrorCategory
-            all_cats = [c for c in df_sc["ErrorCategory"].unique().tolist() if c]
-            selected_cats = st.multiselect("Filtrar por Error Category", options=all_cats, default=all_cats)
-            filtered_df = df_sc.copy()
-            if selected_cats:
-                filtered_df = filtered_df[ filtered_df["ErrorCategory"].isin(selected_cats) ]
+            cats = [c for c in eod_df["ErrorCategory"].unique() if c]
+            flt  = st.multiselect("Filtrar por ErrorCategory", cats, default=cats)
+            if flt: eod_df = eod_df[eod_df["ErrorCategory"].isin(flt)]
+            st.write(f"{len(eod_df)} EOD encontrados")
 
-            st.write(f"**Study Cases encontrados**: {len(filtered_df)}")
-
-            # Tarjetas 2 por fila
             cards_per_row = 2
-            rows = [filtered_df.iloc[i:i+cards_per_row] for i in range(0, len(filtered_df), cards_per_row)]
-
-            for row_chunk in rows:
+            rows = [eod_df.iloc[i:i+cards_per_row] for i
+                    in range(0,len(eod_df),cards_per_row)]
+            for chunk in rows:
                 cols = st.columns(cards_per_row)
-                for i, (idx, trade) in enumerate(row_chunk.iterrows()):
-                    with cols[i]:
-                        fecha = trade.get("Fecha","")
-                        hora = trade.get("Hora","")
-                        symbol = trade.get("Symbol","")
-                        errorcat = trade.get("ErrorCategory","N/A")
-                        resolved = trade.get("Resolved","No")
-                        canva_link = trade.get("StudyCaseLink","")
-                        mini_img = trade.get("StudyCaseImageURL","")
-
-                        st.write(f"**Fecha**: {fecha} {hora}")
-                        st.write(f"**Símbolo**: {symbol}")
-                        st.write(f"**Categoría**: {errorcat}")
-                        st.write(f"**Resuelto?**: {resolved}")
-
-                        # Mostramos la imagen en mini, si existe
-                        if mini_img:
-                            st.image(mini_img, width=250)
-
-                        # Link a Canva o lo que uses
-                        st.markdown(f"[Abrir StudyCase Link]({canva_link})")
-
+                for ix,(idx,tr) in enumerate(chunk.iterrows()):
+                    with cols[ix]:
+                        st.write(f"**{tr['Fecha']}** – {tr['Symbol']}")
+                        st.write(f"Categoría: {tr.get('ErrorCategory','')}")
+                        st.markdown(f"[Abrir EOD]({tr['EOD']})")
                         st.write("---")
 
-st.write("""
----
-### Nota final
-Esta app es un prototipo con ideas avanzadas. 
-No edita tus trades (solo lectura). 
-Si algo te sobra o te falta, ajusta la sección correspondiente. 
----
-""")
+st.write("---\n*Fin del modo experimental.*")
