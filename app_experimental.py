@@ -121,7 +121,7 @@ with st.expander("5) Post‑Analysis · Categorías de error", expanded=False):
 # ===============================================================
 # 6) Loss Trade Reviews – galería agrupada
 # ===============================================================
-with st.expander("6) Loss Trade Reviews (galería)", expanded=False):
+with st.expander("Loss Trade Reviews (galería)", expanded=False):
     if "LossTradeReviewURL" not in df.columns:
         st.warning("No existe la columna LossTradeReviewURL.")
     else:
