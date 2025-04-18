@@ -118,29 +118,43 @@ with st.expander("5) Post‑Analysis · Categorías de error", expanded=False):
                                title="Pérdidas por categoría",
                                color="ErrorCategory"), use_container_width=True)
 
-# ============================================================
-# 6) Loss Trade Reviews – galería (pérdidas reales)
-# ============================================================
-with st.expander("6) Loss Trade Reviews (galería)", expanded=False):
-    ltr = df[(df["IsIdeaOnly"]!="Yes") & (df["Win/Loss/BE"]=="Loss") &
-             (df["LossTradeReviewURL"].str.strip()!="")]
-    if ltr.empty:
-        st.info("No hay Loss Trade Reviews.")
+# ===============================================================
+# 6) Loss Trade Reviews – galería agrupada
+# ===============================================================
+with st.expander("6) Loss Trade Reviews (galería)", expanded=False):
+    if "LossTradeReviewURL" not in df.columns:
+        st.warning("No existe la columna LossTradeReviewURL.")
     else:
-        for _, row in ltr.sort_values("Datetime",ascending=False).iterrows():
-            st.write(f"**{row['Fecha']} {row['Hora']} – {row['Symbol']}**")
-            st.write(f"Categoría: {row.get('ErrorCategory','–')}   |  "
-                     f"Resolved: {row.get('Resolved','No')}")
-            urls = [u.strip() for u in row["LossTradeReviewURL"].split(",")]
-            cols = st.columns(min(3,len(urls)))
-            for i,url in enumerate(urls):
-                if url:
-                    with cols[i%len(cols)]:
-                        st.markdown(f'<a href="{url}" target="_blank">'
-                                    f'<img src="{url}" width="880" '
-                                    'style="margin:3px;border:1px solid #ccc;"></a>',
-                                    unsafe_allow_html=True)
-            st.write("---")
+        ltr_df = df[(df["LossTradeReviewURL"].str.strip() != "") &
+                    (df["Win/Loss/BE"] == "Loss")].copy()
+        if ltr_df.empty:
+            st.info("No hay Loss Trade Reviews.")
+        else:
+            # opcional: filtrar por categoría
+            cats = [c for c in ltr_df["ErrorCategory"].unique() if c]
+            selected = st.multiselect("Filtrar por ErrorCategory", cats, default=cats)
+            if selected:
+                ltr_df = ltr_df[ltr_df["ErrorCategory"].isin(selected)]
+
+            # recorrer trades
+            for _, row in ltr_df.sort_values("Datetime", ascending=False).iterrows():
+                st.write(f"**{row['Fecha']} {row['Hora']} – {row['Symbol']}**")
+                st.write(f"Categoría: {row.get('ErrorCategory','–')}  |  "
+                         f"Resolved: {row.get('Resolved','No')}")
+                urls = [u.strip() for u in row["LossTradeReviewURL"].split(",")]
+                img_cols = st.columns(min(3, len(urls)))  # 3 miniaturas por fila
+                col_idx = 0
+                for url in urls:
+                    if url:
+                        st.markdown(
+                            f'<a href="{url}" target="_blank">'
+                            f'<img src="{url}" width="880" style="margin:4px; border:1px solid #DDD;">'
+                            '</a>',
+                            unsafe_allow_html=True
+                        )
+
+
+                st.write("---")
 
 # ============================================================
 # 7) Miedito Trades (ideas no ejecutadas)
