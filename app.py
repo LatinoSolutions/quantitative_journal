@@ -1,60 +1,43 @@
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.express as px
-from datetime import datetime, timedelta
+
+import streamlit as st, pandas as pd, gspread, numpy as np
 from google.oauth2.service_account import Credentials
-import gspread
+from datetime import datetime, timedelta
 
-# ------------------------------------------------------
-# 1) Configuración general de la página de Streamlit
-# ------------------------------------------------------
-st.set_page_config(
-    page_title="Bru's QuantJournal",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# ------------------------------------------------------
-# 2) Conexión a Google Sheets
-# ------------------------------------------------------
-scope = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive",
-]
-
+# 1) Config inicial
+st.set_page_config(page_title="QuantJournal – Ingreso", layout="wide")
+scope = ["https://www.googleapis.com/auth/spreadsheets",
+         "https://www.googleapis.com/auth/drive"]
 creds_dict = st.secrets["quantitative_journal"]
-credentials = Credentials.from_service_account_info(creds_dict, scopes=scope)
-gc = gspread.authorize(credentials)
+gc = gspread.authorize(Credentials.from_service_account_info(creds_dict, scopes=scope))
+ws = gc.open_by_key("1D4AlYBD1EClp0gGe0qnxr8NeGMbpSvdOx8yHimQDmbE").worksheet("sheet1")
 
-SPREADSHEET_KEY = "1D4AlYBD1EClp0gGe0qnxr8NeGMbpSvdOx8yHimQDmbE"
-sh = gc.open_by_key(SPREADSHEET_KEY)
-worksheet = sh.worksheet("sheet1")
-
-# AÑADIMOS la columna "StudyCaseLink"
-# Nuevo encabezado con 14 columnas totales:
-REQUIRED_HEADER = [
+HEADER = [
     "Fecha","Hora","Symbol","Type","Volume","Win/Loss/BE",
-    "Gross_USD","Commission","USD","R","Screenshot","Comentarios",
-    "Post-Analysis","StudyCaseLink",
-    "ErrorCategory",         # <--- NUEVO
-    "Resolved",              # <--- NUEVO
-    "StudyCaseImageURL"      # <--- NUEVO (opcional)
+    "Gross_USD","Commission","USD","R","Screenshot","Comentarios","Post-Analysis",
+    "EOD","ErrorCategory","Resolved","LossTradeReviewURL","IdeaMissedURL"
 ]
 
-# Verificamos si la hoja está vacía
-existing_data = worksheet.get_all_values()
+# ---------- utilidades ----------
+def get_all(): 
+    df = pd.DataFrame(ws.get_all_records())
+    if not df.empty:
+        df["Datetime"] = pd.to_datetime(df["Fecha"]+" "+df["Hora"], errors="coerce")
+    return df
 
-if not existing_data:
-    # Si la hoja está completamente vacía, escribimos el encabezado nuevo.
-    worksheet.append_row(REQUIRED_HEADER)
-else:
-    # Comentar la parte que "forzaba" el borrado si no coincidía
-    # if existing_data[0] != REQUIRED_HEADER:
-    #     worksheet.clear()
-    #     worksheet.append_row(REQUIRED_HEADER)
-    pass
+def calculate_r(net_usd, acct=60000, rpct=0.25):
+    risk = acct*(rpct/100)
+    return round(float(net_usd)/risk, 2)
 
+def append_trade(d):
+    ws.append_row([d.get(col,"") for col in HEADER])
+
+def update_row(idx, d):
+    sheet_row = idx+2                                 # 0‑based → 1‑based (+ header)
+    row_vals  = [d.get(col,"") for col in HEADER]
+    ws.update(f"A{sheet_row}:R{sheet_row}", [row_vals])   # 18 col = A…R
+
+df = get_all()
+st.title("Quantitative Journal · Ingreso / Edición")
 
 # ------------------------------------------------------
 # 3) Funciones auxiliares
@@ -199,74 +182,46 @@ df = get_all_trades()
 
 st.title("Quantitative Journal - 60K Account")
 
-# ======================================================
-# SECCIÓN 1: Colección de datos (Registrar un trade)
-# ======================================================
-with st.expander("1. Colección de datos (Registrar un trade)", expanded=False):
-    st.write("Completa los campos para agregar un nuevo trade.")
+# =========================================================
+#  SECCIÓN 1 · Registrar un trade
+# =========================================================
+with st.expander("➕ Registrar trade", expanded=False):
+    c1,c2 = st.columns(2)
+    with c1:
+        fecha  = st.date_input("Fecha").strftime("%Y-%m-%d")
+        hora   = st.time_input("Hora").strftime("%H:%M:%S")
+        symbol = st.text_input("Symbol", value="EURUSD")
+        ttype  = st.selectbox("Type", ["Long","Short"])
+        vol    = st.number_input("Volume (lotes)", 0.0, step=0.01)
+        result = st.selectbox("Resultado", ["Win","Loss","BE"])
+    with c2:
+        gross  = st.number_input("Gross USD (antes comisión)", 0.0, step=0.01)
+        ss     = st.text_input("Screenshot URL (opcional)")
+        com    = vol*4.0
+        # ----- campos nuevos -----
+        eod_link   = st.text_input("EOD (Enlace Canva) – opcional")
+        err_cat    = st.text_input("Error Category – opcional")
+        resolved   = st.checkbox("¿Error Resuelto?", value=False)
+        ltr_urls   = st.text_input("LossTradeReviewURL(s)  (separa con coma)")
+        missed_urls= st.text_input("IdeaMissedURL(s)  (opcional)")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        date_str = st.date_input("Fecha").strftime("%Y-%m-%d")
-        time_str = st.time_input("Hora").strftime("%H:%M:%S")
-        symbol = st.selectbox("Símbolo", ["EURUSD", "GBPUSD", "Otro"])
-        trade_type = st.selectbox("Tipo", ["Long", "Short"])
-        volume = st.number_input("Volume (lotes)", min_value=0.0, step=0.01)
-        result = st.selectbox("Resultado", ["Win", "Loss", "BE"])
-    with col2:
-        gross_usd = st.number_input("Gross USD (PnL bruto sin comisión)", value=0.0, step=0.01)
-        screenshot_url = st.text_input("URL Screenshot (opcional)")
-        comments = st.text_area("Comentarios (opcional)")
-        post_analysis = st.text_area("Post-Analysis (opcional)")
-
-        # NUEVOS CAMPOS
-        error_category = st.text_input("Error Category (opcional)")
-        resolved_checkbox = st.checkbox("¿Error Resuelto?", value=False)
-        study_case_img = st.text_input("StudyCaseImageURL (opcional)")
-
-    # Forzamos que si es "Loss" y el valor bruto es positivo => negativo
-    if result == "Loss" and gross_usd > 0:
-        gross_usd = -abs(gross_usd)
-
-    # Cálculo de comisión (ej. 4 USD/lote)
-    commission = volume * 4.0
-    net_usd = gross_usd - commission
-    r_value = calculate_r(net_usd, account_size=60000, risk_percent=0.25)
+    # BE → auto‑ajustamos neto = 0 descontando comisión
+    if result == "BE":
+        gross = com                       # bruto = comisión
+    net_usd   = gross - com
+    r_value   = calculate_r(net_usd)
 
     if st.button("Agregar Trade"):
-        new_trade = {
-            "Fecha": date_str,
-            "Hora": time_str,
-            "Symbol": symbol,
-            "Type": trade_type,
-            "Volume": volume,
-            "Win/Loss/BE": result,
-            "Gross_USD": gross_usd,
-            "Commission": commission,
-            "USD": net_usd,
-            "R": r_value,
-            "Screenshot": screenshot_url,
-            "Comentarios": comments,
-            "Post-Analysis": post_analysis,
-            # LOS NUEVOS CAMPOS
-            "StudyCaseLink": "",  # si lo deseas en el momento
-            "ErrorCategory": error_category,
-            "Resolved": "Yes" if resolved_checkbox else "No",
-            "StudyCaseImageURL": study_case_img
-        }
+        trade = dict(zip(HEADER, [
+            fecha,hora,symbol,ttype,vol,result,
+            gross,com,net_usd,r_value,ss,"","",
+            eod_link,err_cat,"Yes" if resolved else "No",
+            ltr_urls, missed_urls
+        ]))
+        append_trade(trade)
+        st.success("✔️ Trade agregado")
+        df = get_all()
 
-        # Chequeo de reglas, etc., si lo tienes
-        alerts = check_rules(df, new_trade)
-        if alerts:
-            st.error(" / ".join(alerts))
-            st.warning("Considera no registrar este trade si viola tus reglas.")
-
-        # Agregar a la hoja
-        append_trade(new_trade)
-        st.success("Trade agregado exitosamente.")
-
-        # Volver a leer el DF para mostrarlo de inmediato
-        df = get_all_trades()
 
 # ======================================================
 # SECCIÓN 2: Feature Engineering y Métricas
@@ -367,90 +322,63 @@ with st.expander("3. Historial de trades", expanded=False):
     else:
         st.dataframe(df, use_container_width=True)
 
-# ======================================================
-# SECCIÓN 4: Editar / Borrar trades
-# ======================================================
-with st.expander("4. Editar / Borrar trades", expanded=False):
+# =========================================================
+#  SECCIÓN 4 · Editar / borrar
+# =========================================================
+with st.expander("✏️ Editar / Borrar", expanded=False):
     if df.empty:
-        st.warning("No hay trades para editar/borrar.")
+        st.info("No hay trades.")
     else:
-        st.write("Selecciona el índice del trade (0-based) para editar/borrar.")
-        selected_idx = st.number_input(
-            "Índice del trade",
-            min_value=0, 
-            max_value=df.shape[0] - 1,
-            step=1
-        )
-        selected_row = df.loc[selected_idx].to_dict()
-        st.write("Trade seleccionado:")
-        st.json(selected_row)
+        idx = st.number_input("Índice (0‑based)", 0, df.shape[0]-1, step=1)
+        sel = df.loc[idx].to_dict()
+        st.json(sel)
 
-        # Botón Borrar
         if st.button("Borrar este trade"):
-            df = df.drop(selected_idx).reset_index(drop=True)
-            overwrite_sheet(df)  # Reescribimos todo para quitar esa fila
-            st.success("Trade borrado con éxito.")
-            df = get_all_trades()  # Recargamos
+            df = df.drop(idx).reset_index(drop=True)
+            ws.clear()
+            ws.append_row(HEADER)
+            ws.append_rows(df[HEADER].values.tolist())
+            st.success("Trade borrado")
+            df = get_all()
 
-        # Edición de campos (ACTUALIZA SOLO LA FILA)
-        with st.form("edit_form"):
-            st.write("Editar este trade:")
+        with st.form("edit"):
+            new_vals = {}
+            for col in ["Fecha","Hora","Symbol","Type","Volume","Win/Loss/BE",
+                        "Gross_USD","Screenshot","Comentarios","Post-Analysis",
+                        "EOD","ErrorCategory","LossTradeReviewURL","IdeaMissedURL"]:
+                if col in ["Comentarios","Post-Analysis"]:
+                    new_vals[col] = st.text_area(col, sel[col])
+                elif col in ["LossTradeReviewURL","IdeaMissedURL"]:
+                    new_vals[col] = st.text_input(col, sel.get(col,""))
+                elif col == "Volume":
+                    new_vals[col] = st.number_input(col, 0.0, step=0.01, value=float(sel[col]))
+                else:
+                    new_vals[col] = st.text_input(col, sel[col])
 
-            new_fecha = st.text_input("Fecha", value=str(selected_row["Fecha"]))
-            new_hora = st.text_input("Hora", value=str(selected_row["Hora"]))
-            new_symbol = st.text_input("Symbol", value=str(selected_row["Symbol"]))
-            new_type = st.text_input("Type", value=str(selected_row["Type"]))
-            new_volume = st.number_input("Volume (lotes)", min_value=0.0, value=float(selected_row["Volume"]), step=0.01)
-            new_result = st.text_input("Win/Loss/BE", value=str(selected_row["Win/Loss/BE"]))
-
-            new_gross_usd = st.number_input("Gross USD", value=float(selected_row["Gross_USD"]), step=0.01)
-            new_screenshot = st.text_input("Screenshot", value=str(selected_row["Screenshot"]))
-            new_comments = st.text_area("Comentarios", value=str(selected_row["Comentarios"]))
-            new_post_analysis = st.text_area("Post-Analysis", value=str(selected_row["Post-Analysis"]))
-            new_studycase_link = st.text_input("Study Case Link", value=str(selected_row.get("StudyCaseLink","")))
-
-            # NUEVOS CAMPOS
-            new_error_cat = st.text_input("Error Category", value=str(selected_row.get("ErrorCategory","")))
-            # Transformamos a bool
-            new_resolved_str = str(selected_row.get("Resolved","No"))
-            resolved_state = (new_resolved_str.lower() == "yes")
-            updated_resolved = st.checkbox("¿Error Resuelto?", value=resolved_state)
-            new_studycase_img = st.text_input("StudyCaseImageURL", value=str(selected_row.get("StudyCaseImageURL","")))
-
-            submitted = st.form_submit_button("Guardar Cambios")
+            resolved_chk = st.checkbox("Resolved", value=(sel["Resolved"].lower()=="yes"))
+            submitted = st.form_submit_button("Guardar")
             if submitted:
-                # Recalcular la comisión y neto
-                updated_commission = new_volume * 4.0
-                updated_net_usd = new_gross_usd - updated_commission
-                updated_r = calculate_r(updated_net_usd, account_size=60000, risk_percent=0.25)
+                # recalculamos comisión / neto / R
+                volume  = float(new_vals["Volume"])
+                gross   = float(new_vals["Gross_USD"])
+                comm    = volume*4.0
+                if new_vals["Win/Loss/BE"] == "BE":
+                    gross = comm
+                net_usd = gross - comm
+                r_val   = calculate_r(net_usd)
 
-                # Actualizar en df
-                df.loc[selected_idx, "Fecha"]         = new_fecha
-                df.loc[selected_idx, "Hora"]          = new_hora
-                df.loc[selected_idx, "Symbol"]        = new_symbol
-                df.loc[selected_idx, "Type"]          = new_type
-                df.loc[selected_idx, "Volume"]        = new_volume
-                df.loc[selected_idx, "Win/Loss/BE"]   = new_result
-                df.loc[selected_idx, "Gross_USD"]     = new_gross_usd
-                df.loc[selected_idx, "Commission"]    = updated_commission
-                df.loc[selected_idx, "USD"]           = updated_net_usd
-                df.loc[selected_idx, "R"]             = updated_r
-                df.loc[selected_idx, "Screenshot"]    = new_screenshot
-                df.loc[selected_idx, "Comentarios"]   = new_comments
-                df.loc[selected_idx, "Post-Analysis"] = new_post_analysis
-                df.loc[selected_idx, "StudyCaseLink"] = new_studycase_link
+                # actualizamos dict completo
+                sel.update(new_vals)
+                sel["Gross_USD"]  = gross
+                sel["Commission"] = comm
+                sel["USD"]        = net_usd
+                sel["R"]          = r_val
+                sel["Resolved"]   = "Yes" if resolved_chk else "No"
 
-                # Nuevos
-                df.loc[selected_idx, "ErrorCategory"] = new_error_cat
-                df.loc[selected_idx, "Resolved"]      = "Yes" if updated_resolved else "No"
-                df.loc[selected_idx, "StudyCaseImageURL"] = new_studycase_img
-
-                # Actualizar SOLO la fila en Google Sheets
-                trade_dict_updated = df.loc[selected_idx].to_dict()
-                update_single_row_in_sheet(selected_idx, trade_dict_updated)
-
-                st.success("Trade editado con éxito.")
-                # Recargar df
-                df = get_all_trades()
+                update_row(idx, sel)
+                st.success("Cambios guardados")
+                df = get_all()
+# ------------- resto de tu app (historial, etc.) -------------
+st.dataframe(df)
 
 # Fin de la app
