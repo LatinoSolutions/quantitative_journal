@@ -198,7 +198,7 @@ with st.expander("6) Loss Trade Reviews (galería)", expanded=False):
                             '</a>',
                             unsafe_allow_html=True
                         )
-                        st.caption("Abrir tamaño completo")
+
 
                 st.write("---")
 
