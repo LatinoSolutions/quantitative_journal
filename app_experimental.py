@@ -61,7 +61,28 @@ with st.expander("1) Métricas de rendimiento avanzado", expanded=False):
     st.plotly_chart(
         go.Figure(go.Scatter(x=df_real["Datetime"],y=dd,mode="lines",
                              line=dict(color="red"))).update_layout(
-            title="Drawdown over time"), use_container_width=True)
+            title="Drawdown over time"))
+    # ---- Break‑Even Outcome KPI ----
+be_saved  = ((df_real["Win/Loss/BE"]=="BE") &
+             (df_real["BEOutcome"]=="SavedCapital")).sum()
+be_missed = ((df_real["Win/Loss/BE"]=="BE") &
+             (df_real["BEOutcome"]=="MissedOpportunity")).sum()
+
+st.write("##### Break‑Even Outcomes")
+st.write(f"**Saved Capital:** {be_saved}   |   "
+         f"**Missed Opportunity:** {be_missed}")
+
+# Pequeño gráfico de barras
+be_kpi_df = pd.DataFrame({
+        "Outcome": ["SavedCapital","MissedOpportunity"],
+        "Count": [be_saved, be_missed]
+})
+st.plotly_chart(
+    px.bar(be_kpi_df, x="Outcome", y="Count",
+           title="BE Outcome count", text="Count"),
+    use_container_width=True
+)
+
 
 # ============================================================
 # 2) Resúmenes semanales / mensuales (trades reales)
