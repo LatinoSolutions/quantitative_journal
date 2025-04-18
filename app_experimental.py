@@ -193,7 +193,7 @@ with st.expander("6) Loss Trade Reviews (galería)", expanded=False):
                 for url in urls:
                     if url:
                         with img_cols[col_idx]:
-                            st.image(url, width=220)
+                            st.image(url, width=440)
                         col_idx = (col_idx + 1) % len(img_cols)
                 st.write("---")
 
