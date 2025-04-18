@@ -158,7 +158,7 @@ with st.expander("7) Miedito Trades", expanded=False):
             for url in urls:
                 if url: 
                     st.markdown(f'<a href="{url}" target="_blank">'
-                                f'<img src="{url}" width="220" '
+                                f'<img src="{url}" width="880" '
                                 'style="margin:3px;border:1px solid #ccc;"></a>',
                                 unsafe_allow_html=True)
             st.write("---")
