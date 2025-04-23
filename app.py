@@ -460,10 +460,10 @@ with st.expander("🩹 Balance Adjustment", expanded=False):
         now   = datetime.today().strftime("%H:%M:%S")
 
         adj_row = dict(zip(HEADER, [
-            today, now, "ADJ", "Adj", 0.0, "",          # Fecha Hora Symbol Type Volume Ticket
-            "Adj", diff, 0.0, diff,                     # Win/Loss/BE Gross Commission USD
-            calculate_r(diff), "", "", "", "Adjustment", "",  # R y columnas de notas
-            "No", "", "", ""                            # Resolved, IdeaOnly, BEOutcome
+            today, now, "ADJ", "Adj", 0.0, "",           # Fecha Hora Symbol Type Volume Ticket
+            "Adj", diff, 0.0, diff,                      # Win/Loss/BE Gross Commission USD
+            calc_r(diff), "", "", "", "Adjustment", "",  # R y columnas de notas
+            "No", "", "", ""                             # Resolved, IdeaOnly, BEOutcome
         ]))
 
         ws.append_row([adj_row[c] for c in HEADER])
