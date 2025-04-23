@@ -41,8 +41,11 @@ def calc_r(usd, cap=60000, pct=0.25):
     risk = cap*(pct/100)
     return round(float(usd)/risk, 2) if risk else 0
 
-def update_row(idx, d):
-    ws.update(f"A{idx+2}:T{idx+2}", [[d.get(c,"") for c in HEADER]])
+# ---------- actualizar UNA fila sin tocar tus notas ----------
+def update_row(idx, d):          # idx es 0-based
+    sheet_row = idx + 2          # + cabecera
+    row_vals  = [d.get(c, "") for c in HEADER]
+    ws.update(f"A{sheet_row}:U{sheet_row}", [row_vals])   # A-U = 21 cols
 
 def trades_needed(r_faltante, RR):
     return max(0, math.ceil(r_faltante/RR))
