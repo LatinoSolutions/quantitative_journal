@@ -439,7 +439,6 @@ with st.expander("📥 Importar log MT5 (DumpTrades)", expanded=False):
 
             st.success(f"Nuevos: {added}  |  Reemplazados: {replaced}  |  "
                        f"Correcciones: {fixed}.  Pulsa Rerun.")
-
 # =========================================================
 #  🩹 Balance Adjustment (parche rápido)
 # =========================================================
@@ -460,10 +459,10 @@ with st.expander("🩹 Balance Adjustment", expanded=False):
         now   = datetime.today().strftime("%H:%M:%S")
 
         adj_row = dict(zip(HEADER, [
-            today, now, "ADJ", "Adj", 0.0, "",           # Fecha Hora Symbol Type Volume Ticket
-            "Adj", diff, 0.0, diff,                      # Win/Loss/BE Gross Commission USD
-            calc_r(diff), "", "", "", "Adjustment", "",  # R y columnas de notas
-            "No", "", "", ""                             # Resolved, IdeaOnly, BEOutcome
+            today, now, "ADJ", "Adj", 0.0, "",           # Fecha-Hora-Symbol-Type-Volume-Ticket
+            "Adj", diff, 0.0, diff,                      # Win/Loss/BE-Gross-Commission-USD
+            calc_r(diff), "", "", "", "Adjustment", "",  # R y notas
+            "No", "", "", "", ""                         # Resolved … BEOutcome  ← (añadido "")
         ]))
 
         ws.append_row([adj_row[c] for c in HEADER])
