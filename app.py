@@ -438,3 +438,32 @@ with st.expander("📥 Importar log MT5 (DumpTrades)", expanded=False):
 
             st.success(f"Nuevos: {added}  |  Reemplazados: {replaced}  |  "
                        f"Correcciones: {fixed}.  Pulsa Rerun.")
+
+# =========================================================
+#  Ajuste manual de balance (parche rápido)
+# =========================================================
+with st.expander("🩹 Balance Adjustment (parche rápido)", expanded=False):
+
+    current_net = round(df["USD"].sum(), 2) if not df.empty else 0.0
+    st.write(f"Net Profit actual en el journal: **{current_net} USD**")
+
+    mt5_value = st.number_input(
+        "Escribe aquí el Net Profit exacto que ves en MT5",
+        value=current_net, step=0.01, format="%.2f")
+
+    diff = round(mt5_value - current_net, 2)
+    st.write(f"Diferencia a ajustar: **{diff:+} USD**")
+
+    if st.button("➕ Crear ajuste") and diff != 0:
+        today = datetime.today().strftime("%Y-%m-%d")
+        now   = datetime.today().strftime("%H:%M:%S")
+
+        adj_row = dict(zip(HEADER, [
+            today, now, "ADJ", "Adj", 0.0, "",           # Fecha, Hora, Symbol, Type, Volume, Ticket
+            "Adj", diff, 0.0, diff,                      # Win/Loss/BE, Gross, Commission, USD
+            calc_r(diff), "", "", "", "Adjustment", "",  # R, Screenshot, Comentarios…
+            "No", "", "", ""                             # Resolved… columnas extra
+        ]))
+
+        ws.append_row([adj_row[c] for c in HEADER])
+        st.success("Fila de ajuste añadida. Pulsa *Rerun* para ver métricas actualizadas.")
