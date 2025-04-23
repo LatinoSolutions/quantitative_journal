@@ -71,49 +71,72 @@ def fix_be(df):
 df = fix_be(get_all())
 st.title("Quantitative Journal · Registro & Métricas")
 
-# ====================================================
-# 1) Registrar trade
-# ====================================================
+# ======================================================
+# SECCIÓN 1 · Registrar un trade
+# ======================================================
 with st.expander("➕ Registrar trade", expanded=False):
-    c1,c2 = st.columns(2)
+    c1, c2 = st.columns(2)
+
+    # ---------- Inputs ----------
     with c1:
         fecha  = st.date_input("Fecha").strftime("%Y-%m-%d")
         hora   = st.time_input("Hora").strftime("%H:%M:%S")
-        symbol = st.text_input("Symbol","EURUSD")
-        ttype  = st.selectbox("Type",["Long","Short"])
-        vol    = st.number_input("Volume (lots)",0.0,step=0.01)
-        result = st.selectbox("Resultado",["Win","Loss","BE"])
+        symbol = st.text_input("Symbol", value="EURUSD")
+        ttype  = st.selectbox("Type", ["Long", "Short"])
+        volume = st.number_input("Volume (lotes)", 0.0, step=0.01)
+        result = st.selectbox("Resultado", ["Win", "Loss", "BE"])
+
     with c2:
-        gross  = st.number_input("Gross USD (antes comisión)",0.0,step=0.01)
-        screenshot = st.text_input("Screenshot URL")
-        comments   = st.text_area("Comentarios")
-        post_an    = st.text_area("Post-Analysis")
-        eod_link   = st.text_input("EOD (link Canva)")
-        err_cat    = st.text_input("Error Category")
-        resolved   = st.checkbox("¿Error Resuelto?",False)
-        ltr_urls   = st.text_input("LossTradeReviewURL(s)")
-        missed_urls= st.text_input("IdeaMissedURL(s)")
-        idea_only  = st.checkbox("¿Sólo idea / Miedito?",False)
+        gross       = st.number_input("Gross USD (antes comisión)", 0.0, step=0.01)
+        screenshot  = st.text_input("Screenshot URL")
+        comments    = st.text_area("Comentarios")
+        post_an     = st.text_area("Post-Analysis")
+        eod_link    = st.text_input("EOD (link Canva)")
+        err_cat     = st.text_input("Error Category")
+        resolved    = st.checkbox("¿Error Resuelto?", False)
+        ltr_urls    = st.text_input("LossTradeReviewURL(s)  (coma separadas)")
+        missed_urls = st.text_input("IdeaMissedURL(s)  (coma separadas)")
 
-    comm   = vol*4.0
-    if result=="BE":  # BE -> net negativo comisión
-        gross = 0
-    net_usd = gross - comm
-    r_val   = calc_r(net_usd)
+    # ---------- Cálculos ----------
+    commission = volume * 4.0
+    if result == "BE":
+        gross = commission        # bruto = comisión
+    net_usd = gross - commission
+    r_value = calc_r(net_usd)
 
-    if idea_only:
-        result="Miedito"; gross=comm=net_usd=r_val=0
-
+    # ---------- Guardar ----------
     if st.button("Agregar Trade"):
-        trade = dict(zip(HEADER, [
-            fecha,hora,symbol,ttype,vol,result,
-            gross,comm,net_usd,r_val,screenshot,comments,post_an,
-            eod_link,err_cat,"Yes" if resolved else "No",
-            ltr_urls, missed_urls,"Yes" if idea_only else "No",""
-        ]))
-        ws.append_row([trade[c] for c in HEADER])
-        st.success("Trade agregado ✔️")
-        df = get_all()
+        trade = {
+            "Fecha"      : fecha,
+            "Hora"       : hora,
+            "Symbol"     : symbol,
+            "Type"       : ttype,
+            "Volume"     : volume,
+            "Ticket"     : "",                        # se llenará al importar log
+            "Win/Loss/BE": result,
+            "Gross_USD"  : gross,
+            "Commission" : commission,
+            "USD"        : net_usd,
+            "R"          : r_value,
+            "Screenshot" : screenshot,
+            "Comentarios": comments,
+            "Post-Analysis": post_an,
+            "EOD"        : eod_link,
+            "ErrorCategory": err_cat,
+            "Resolved"   : "Yes" if resolved else "No",
+            "LossTradeReviewURL": ltr_urls,
+            "IdeaMissedURL"    : missed_urls,
+            "IsIdeaOnly" : "",                        # columnas nuevas → vacío
+            "BEOutcome"  : ""
+        }
+
+        # asegura que todas las columnas de HEADER existen
+        row_values = [trade.get(col, "") for col in HEADER]
+        ws.append_row(row_values)
+
+        st.success("✔️ Trade agregado")
+        df = get_all()   # recargar dataframe
+
 
 # ====================================================
 # 2) KPIs
