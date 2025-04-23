@@ -1,6 +1,7 @@
 # ----------------------  app.py  ----------------------
 import streamlit as st, pandas as pd, numpy as np, math
 import plotly.express as px, plotly.graph_objects as go
+from datetime import datetime, timedelta       # ← añade esta línea
 from google.oauth2.service_account import Credentials
 import gspread
 
