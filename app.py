@@ -259,3 +259,47 @@ with st.expander("✏️ Editar / Borrar trades", expanded=False):
 # ====================================================
 with st.expander("📜 Historial", expanded=False):
     st.dataframe(df,use_container_width=True)
+
+# =========================================================
+# 5) Auditoría y corrección automática  (una sola vez)
+# =========================================================
+with st.expander("🛠️  Auditoría de integridad (BE & Net)", expanded=False):
+
+    if st.button("➤  Escanear hoja"):
+        issues = []
+        for i,row in df.iterrows():
+            vol  = float(row["Volume"] or 0)
+            comm = float(row["Commission"] or 0)
+            gross= float(row["Gross_USD"] or 0)
+            usd  = float(row["USD"] or 0)
+            if row["Win/Loss/BE"]=="BE":
+                if not (abs(gross) < 0.01 and abs(usd + comm) < 0.01):
+                    issues.append((i,row["Fecha"],row["Hora"],"BE incorrecto"))
+            elif row["Win/Loss/BE"] in ["Win","Loss"]:
+                if abs(usd - (gross-comm)) > 0.01:
+                    issues.append((i,row["Fecha"],row["Hora"],"Neto≠gross-com"))
+        if not issues:
+            st.success("✅  Todos los trades cuadran.")
+        else:
+            st.warning(f"{len(issues)} fila(s) con problema:")
+            st.table(pd.DataFrame(issues,
+                     columns=["idx","Fecha","Hora","Detalle"]))
+
+    if st.button("⚠️  Corregir automáticamente BE incorrectos"):
+        fixed = 0
+        for i,row in df.iterrows():
+            if row["Win/Loss/BE"]=="BE" and abs(float(row["USD"])) < 0.01:
+                vol  = float(row["Volume"] or 0)
+                comm = round(vol*4.0,2)
+                df.at[i,"Gross_USD"]  = 0
+                df.at[i,"Commission"] = comm
+                df.at[i,"USD"]        = -comm
+                df.at[i,"R"]          = calc_r(-comm)
+                fixed += 1
+        if fixed:
+            ws.clear(); ws.append_row(HEADER)
+            ws.append_rows(df[HEADER].values.tolist())
+            st.success(f"Arregladas {fixed} filas BE; recarga la app.")
+        else:
+            st.info("No había BE con USD = 0 para corregir.")
+
