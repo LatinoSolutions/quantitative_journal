@@ -322,12 +322,12 @@ with st.expander("📥 Importar log MT5 (DumpTrades)", expanded=False):
             rows = []
 
             for r in rdr:
-                if not r:                     # línea vacía
+                if not r:
                     continue
-                line = ",".join(r)            # reconstruye texto original
 
-                # --- quitar prefijo “fecha hora DumpTrades (símbolo,H1) ” ---
-                # prefijo termina en “)\t”
+                line = ",".join(r)
+
+                # quitar el prefijo “... DumpTrades (...) ”
                 if "DumpTrades" in line and ")" in line:
                     line = re.split(r"\)\s+", line, maxsplit=1)[-1]
 
@@ -347,10 +347,10 @@ with st.expander("📥 Importar log MT5 (DumpTrades)", expanded=False):
                 df_log["Volume"] = df_log["Volume"].astype(float)
                 df_log["Profit"] = df_log["Profit"].astype(float)
 
-                # --- Cruce con hoja ---
                 merged = df_log.merge(df, on=["Fecha","Hora","Volume"],
                                       how="left", indicator=True,
                                       suffixes=("_log","_sheet"))
+
                 faltan  = merged[merged["_merge"]=="left_only"]
                 diffval = merged[(merged["_merge"]=="both") &
                                  (abs(merged["Profit"])>0.005) &
@@ -360,47 +360,60 @@ with st.expander("📥 Importar log MT5 (DumpTrades)", expanded=False):
                 st.write(f"Faltan en hoja: {len(faltan)}")
                 st.write(f"Profit distinto: {len(diffval)}")
 
+                # ---------- mostrar tablas legibles ----------
                 if not faltan.empty:
-                    st.dataframe(faltan[["Fecha","Hora","Symbol",
-                                         "Volume","Profit"]],
-                                 height=200)
-                if not diffval.empty:
-                    st.dataframe(diffval[["Fecha","Hora","Symbol",
-                                          "Profit","USD"]],
-                                 height=200)
+                    faltan_disp = faltan.rename(columns={"Symbol_log":"Symbol"}) \
+                                         if "Symbol_log" in faltan.columns else faltan
+                    st.dataframe(faltan_disp[["Fecha","Hora","Symbol",
+                                              "Volume","Profit"]],
+                                 height=220)
 
+                if not diffval.empty:
+                    diff_disp = diffval.rename(columns={"Symbol_log":"Symbol"}) \
+                                        if "Symbol_log" in diffval.columns else diffval
+                    st.dataframe(diff_disp[["Fecha","Hora","Symbol",
+                                            "Profit","USD"]],
+                                 height=220)
+
+                # ---------- botón de inserción / corrección ----------
                 if st.button("⚠️  Insertar faltantes y corregir profits"):
-                    added=fixed=0
+                    added = fixed = 0
+
+                    # añadir faltantes
                     for _,r in faltan.iterrows():
                         vol  = r["Volume"]
                         comm = round(vol*4.0, 2)
                         usd  = r["Profit"]
                         gross= usd + comm
                         res  = "Win" if usd>0 else "Loss"
-                        if abs(usd+comm) < 0.01:   # BE
+                        if abs(usd+comm) < 0.01:        # BE
                             res="BE"; gross=0
-                        trade=dict(zip(HEADER,[
+
+                        trade = dict(zip(HEADER, [
                             r["Fecha"], r["Hora"], r["Symbol"],
                             "Long" if int(r["TypeCode"])%2 else "Short",
                             vol, res, gross, comm, usd,
                             calc_r(usd), "", "", "", "",
                             "", "No", "", "", ""
                         ]))
-                        ws.append_row([trade[c] for c in HEADER]); added+=1
+                        ws.append_row([trade[c] for c in HEADER])
+                        added += 1
 
+                    # corregir profits distintos
                     for _,r in diffval.iterrows():
-                        idx=df[(df["Fecha"]==r["Fecha"]) &
-                               (df["Hora"]==r["Hora"]) &
-                               (abs(df["Volume"]-r["Volume"])<0.001)].index
+                        idx = df[(df["Fecha"]==r["Fecha"]) &
+                                 (df["Hora"]==r["Hora"]) &
+                                 (abs(df["Volume"]-r["Volume"])<0.001)].index
                         if not idx.empty:
-                            i=idx[0]
-                            df.at[i,"USD"]=r["Profit"]
-                            df.at[i,"R"]  =calc_r(r["Profit"])
-                            fixed+=1
+                            i = idx[0]
+                            df.at[i,"USD"] = r["Profit"]
+                            df.at[i,"R"]   = calc_r(r["Profit"])
+                            fixed += 1
 
+                    # guardar hoja
                     if added or fixed:
                         ws.clear(); ws.append_row(HEADER)
                         ws.append_rows(df[HEADER].values.tolist())
 
                     st.success(f"Insertados: {added}  |  Corregidos: {fixed}. "
-                               "Pulsa Rerun.")
+                               "Pulsa Rerun para actualizar métricas.")
