@@ -9,10 +9,11 @@ st.set_page_config("Quantitative Journal – Ingreso / KPIs", layout="wide")
 
 creds = Credentials.from_service_account_info(
             st.secrets["quantitative_journal"],
-            scopes=["https://www.googleapis.com/auth/spreadsheets",
-                    "https://www.googleapis.com/auth/drive"])
-ws = gspread.authorize(creds)\
-        .open_by_key("1D4AlYBD1EClp0gGe0qnxr8NeGMbpSvdOx8yHimQDmbE")\
+            scopes=[
+                "https://www.googleapis.com/auth/spreadsheets",
+                "https://www.googleapis.com/auth/drive"])
+ws = gspread.authorize(creds) \
+        .open_by_key("1D4AlYBD1EClp0gGe0qnxr8NeGMbpSvdOx8yHimQDmbE") \
         .worksheet("sheet1")
 
 HEADER = [
@@ -21,6 +22,13 @@ HEADER = [
     "Post-Analysis","EOD","ErrorCategory","Resolved",
     "LossTradeReviewURL","IdeaMissedURL","IsIdeaOnly","BEOutcome"
 ]
+
+# ---------- Verificar / fijar cabecera (21 columnas) ----------
+first_row = ws.row_values(1)
+if first_row != HEADER:
+    ws.update('A1', [HEADER])        # solo re-escribe fila 1, no borra datos
+    st.toast("Cabecera actualizada en Google Sheet ✔️", icon="📑")
+
 
 # -------------- helpers ------------------------------
 def get_all():
