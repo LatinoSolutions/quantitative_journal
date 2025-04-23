@@ -306,10 +306,10 @@ with st.expander("🛠️  Auditoría de integridad (BE & Net)", expanded=False)
 # =========================================================
 # 6) Importar log MT5 (DumpTrades) – reconciliación por Ticket
 # =========================================================
-import csv, io, math, re, pandas as pd
+import csv, io, re, pandas as pd
 with st.expander("📥 Importar log MT5 (DumpTrades)", expanded=False):
 
-    raw = st.text_area("Pega las líneas completas del log DumpTrades",
+    raw = st.text_area("Pega aquí las líneas completas del log",
                        height=220)
 
     if st.button("➤ Analizar log"):
@@ -318,93 +318,106 @@ with st.expander("📥 Importar log MT5 (DumpTrades)", expanded=False):
             st.warning("Nada pegado.")
             st.stop()
 
-        # ---------- Parseo ----------
-        rows=[]
+        # ---------- Parseo del texto ----------
+        rows = []
         for line in raw.strip().splitlines():
             if "DumpTrades" in line and ")" in line:
                 line = re.split(r"\)\s+", line, maxsplit=1)[-1]
-            parts=line.split(",")
-            if len(parts)==7 and parts[0]!="DATE":
+            parts = line.split(",")
+            if len(parts) == 7 and parts[0] != "DATE":
                 rows.append(parts)
 
         if not rows:
             st.error("No se detectó CSV en el texto.")
             st.stop()
 
-        df_log=pd.DataFrame(rows,columns=
-           ["Fecha","Hora","Ticket","Symbol",
-            "Volume","TypeCode","Profit"])
+        df_log = pd.DataFrame(rows, columns=
+            ["Fecha","Hora","Ticket","Symbol",
+             "Volume","TypeCode","Profit"])
 
-        df_log["Fecha"]=pd.to_datetime(df_log["Fecha"]).dt.strftime("%Y-%m-%d")
-        df_log["Hora"] =(pd.to_datetime(df_log["Hora"])
-                         -pd.Timedelta(hours=1)).dt.strftime("%H:%M:%S")
-        df_log["Volume"]=df_log["Volume"].astype(float)
-        df_log["Profit"]=df_log["Profit"].astype(float)
-        df_log["Ticket"]=df_log["Ticket"].astype(str)
+        df_log["Fecha"]  = pd.to_datetime(df_log["Fecha"]
+                            ).dt.strftime("%Y-%m-%d")
+        df_log["Hora"]   = (pd.to_datetime(df_log["Hora"])
+                            - pd.Timedelta(hours=1)
+                           ).dt.strftime("%H:%M:%S")
+        df_log["Volume"] = df_log["Volume"].astype(float)
+        df_log["Profit"] = df_log["Profit"].astype(float)
+        df_log["Ticket"] = df_log["Ticket"].astype(str)
 
+        # Asegura que la hoja tiene columna Ticket
         if "Ticket" not in df.columns:
-            df["Ticket"]=""
+            df["Ticket"] = ""
 
-        # ---------- Merge por Ticket ----------
-        merged=df_log.merge(df,on="Ticket",how="left",indicator=True,
-                            suffixes=("_log","_sheet"))
+        # ---------- Cruce por Ticket ----------
+        merged = df_log.merge(df, on="Ticket", how="left",
+                              indicator=True,
+                              suffixes=("_log","_sheet"))
 
-        faltan  = merged[merged["_merge"]=="left_only"].copy()
-        diffval = merged[(merged["_merge"]=="both") &
-                         (abs(merged["Profit"]-merged["USD"])>0.01)].copy()
+        faltan  = merged[merged["_merge"] == "left_only"].copy()
+        diffval = merged[(merged["_merge"] == "both") &
+                         (abs(merged["Profit"]-merged["USD"]) > 0.01)].copy()
 
         st.write(f"Trades en log: {len(df_log)}")
         st.write(f"Faltan en hoja: {len(faltan)}")
         st.write(f"Profit distinto: {len(diffval)}")
 
-        # ---------- Helper para elegir columna Symbol ----------
-        def symbol_col(dfany):
-            return "Symbol_log" if "Symbol_log" in dfany.columns else "Symbol"
+        # Helper para elegir columna símbolo
+        def sym_col(df_any):
+            return "Symbol_log" if "Symbol_log" in df_any.columns else "Symbol"
 
         if not faltan.empty:
-            sc=symbol_col(faltan)
-            st.dataframe(faltan[["Fecha","Hora",sc,"Volume","Profit"]],
-                         height=220)
+            sc = sym_col(faltan)
+            cols = [c for c in ["Fecha","Hora",sc,"Volume","Profit"] if c in faltan.columns]
+            st.dataframe(faltan[cols], height=220)
 
         if not diffval.empty:
-            sc=symbol_col(diffval)
-            st.dataframe(diffval[["Fecha","Hora",sc,"Profit","USD"]],
-                         height=220)
+            sc = sym_col(diffval)
+            cols = [c for c in ["Fecha","Hora",sc,"Profit","USD"] if c in diffval.columns]
+            st.dataframe(diffval[cols], height=220)
 
-        # ---------- Insertar / corregir ----------
+        # ---------- Botón para insertar / corregir ----------
         if st.button("⚠️ Insertar faltantes y corregir profits"):
-            added=fixed=0
-            for _,r in faltan.iterrows():
-                vol=float(r["Volume"]); comm=round(vol*4.0,2)
-                usd=r["Profit"]; gross=usd+comm
-                res="Win" if usd>0 else "Loss"
-                if abs(usd+comm)<0.01: res="BE"; gross=0
-                trade=dict(zip(HEADER,[
-                    r["Fecha"],r["Hora"],r[symbol_col(faltan)],
-                    "Long" if int(r["TypeCode"])%2 else "Short",
-                    vol, r["Ticket"], res, gross, comm, usd,
-                    calc_r(usd), "", "", "", "", "", "No","","",""
-                ]))
-                ws.append_row([trade[c] for c in HEADER]); added+=1
+            added = fixed = 0
 
-            for _,r in diffval.iterrows():
-                idx=df[df["Ticket"]==r["Ticket"]].index
+            # 1) insertar faltantes
+            for _, r in faltan.iterrows():
+                vol  = float(r["Volume"])
+                comm = round(vol * 4.0, 2)
+                usd  = r["Profit"]
+                gross = usd + comm
+                res   = "Win" if usd > 0 else "Loss"
+                if abs(usd + comm) < 0.01:
+                    res = "BE";  gross = 0
+                trade = dict(zip(HEADER, [
+                    r["Fecha"], r["Hora"], r[sym_col(faltan)],
+                    "Long" if int(r["TypeCode"]) % 2 else "Short",
+                    vol, r["Ticket"], res, gross, comm, usd,
+                    calc_r(usd), "", "", "", "", "", "No", "", "", ""
+                ]))
+                ws.append_row([trade[c] for c in HEADER])
+                added += 1
+
+            # 2) corregir profits distintos
+            for _, r in diffval.iterrows():
+                idx = df[df["Ticket"] == r["Ticket"]].index
                 if not idx.empty:
-                    i=idx[0]
-                    vol=float(r["Volume"]); comm=round(vol*4.0,2)
-                    usd=r["Profit"]; gross=usd+comm
-                    df.at[i,"Volume"]=vol
-                    df.at[i,"Gross_USD"]=gross
-                    df.at[i,"Commission"]=comm
-                    df.at[i,"USD"]=usd
-                    df.at[i,"R"]=calc_r(usd)
-                    df.at[i,"Win/Loss/BE"]="Win" if usd>0 else \
-                                           ("BE" if abs(usd)<0.01 else "Loss")
-                    fixed+=1
+                    i = idx[0]
+                    vol  = float(r["Volume"])
+                    comm = round(vol * 4.0, 2)
+                    usd  = r["Profit"]
+                    gross = usd + comm
+                    df.at[i, "Volume"]      = vol
+                    df.at[i, "Gross_USD"]   = gross
+                    df.at[i, "Commission"]  = comm
+                    df.at[i, "USD"]         = usd
+                    df.at[i, "R"]           = calc_r(usd)
+                    df.at[i, "Win/Loss/BE"] = ("Win" if usd > 0 else
+                                               ("BE" if abs(usd) < 0.01 else "Loss"))
+                    fixed += 1
 
             if added or fixed:
                 ws.clear(); ws.append_row(HEADER)
                 ws.append_rows(df[HEADER].values.tolist())
 
-            st.success(f"Insertados: {added} | Corregidos: {fixed}. "
+            st.success(f"Insertados: {added}  |  Corregidos: {fixed}. "
                        "Pulsa Rerun.")
