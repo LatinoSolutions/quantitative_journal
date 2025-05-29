@@ -133,15 +133,18 @@ with st.expander("📊 Métricas / KPIs", expanded=False):
         k[5].metric("Gross Profit", fmt(gross_p))
         k[6].metric("Gross Loss", fmt(gross_l))
 
-        k=st.columns(7)
+        k = st.columns(7)
         k[0].metric("Comisiones", fmt(commissions_sum))
         k[1].metric("Equity", fmt(current_eq), f"{pct_change:.2f} %")
-        k[2].metric("Dist. DD −10 %", fmt(dist_dd),
-                    f"{trades_to_burn} trades")
-        k[3].metric("R acumuladas", f"{r_total:.2f}")
-        k[4].metric("BE count", be_tr)
-        k[5].metric("Win/Loss/BE", f"{wins}/{losses}/{be_tr}")
-        k[6].write(" ")
+        k[2].metric("Dist. DD −10 %", fmt(dist_dd), f"{trades_to_burn} trades")
+
+        pend_cnt = len(df[(df["Win/Loss/BE"]=="Loss") & (df["Resolved"]!="Yes")])
+        k[3].metric("Loss sin Resolver", pend_cnt)
+
+        k[4].metric("R acumuladas", f"{r_total:.2f}")
+        k[5].metric("BE count", be_tr)
+        k[6].metric("Win/Loss/BE", f"{wins}/{losses}/{be_tr}")
+
 
         k=st.columns(7)
         k[0].metric("Fase 1 +8 %", "✅" if f1_done else fmt(dist_f1),
