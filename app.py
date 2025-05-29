@@ -183,6 +183,28 @@ with st.expander("🩹 Balance Adjustment", expanded=False):
         st.success("Ajuste añadido; F5 para ver métricas.")
 
 # ======================================================
+# X · ⚠️ Loss sin Resolver
+# ======================================================
+with st.expander("⚠️ Loss sin Resolver", expanded=False):
+    # Filtramos solo Loss sin 'Resolved'
+    pend = df[(df["Win/Loss/BE"] == "Loss") & (df["Resolved"] != "Yes")]
+    st.metric("Pendientes", len(pend))          # mini-métrica rápida
+    if pend.empty:
+        st.success("Todo resuelto ✅")
+    else:
+        # mostramos columnas clave
+        st.dataframe(
+            pend[["Fecha", "Hora", "Symbol", "USD", "ErrorCategory"]],
+            height=200
+        )
+        # botón para saltar al editor del primer pendiente
+        if st.button("Ir al primero en Editar/Borrar"):
+            idx_first = int(pend.index[0])
+            # Guarda parámetro en la URL para que Edit/Borrar lo lea
+            st.experimental_set_query_params(edit=str(idx_first))
+            st.experimental_rerun()
+
+# ======================================================
 # 4 · Historial
 # ======================================================
 with st.expander("📜 Historial", expanded=False):
