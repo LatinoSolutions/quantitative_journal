@@ -1,7 +1,7 @@
-# ------------------ app_gallery.py ------------------
+# -------------- view_app.py  (Galería) --------------
 import streamlit as st, pandas as pd
 from google.oauth2.service_account import Credentials
-import gspread
+import gspread, datetime as dt
 
 st.set_page_config("Quantitative Journal – Galería", layout="wide")
 
@@ -15,48 +15,55 @@ ws = gspread.authorize(creds)\
         .worksheet("sheet1")
 df = pd.DataFrame(ws.get_all_records())
 if df.empty:
-    st.warning("No hay datos.")
-    st.stop()
+    st.info("No hay datos."); st.stop()
 
-# ---------- Filtros barra lateral ----------
+df["Fecha_dt"] = pd.to_datetime(df["Fecha"])
+
+# ---------- Filtros ----------
 st.sidebar.header("Filtros")
+
 res_filter = st.sidebar.multiselect(
     "Resultado", ["Win","Loss","BE"], default=["Win","Loss","BE"])
-start, end = st.sidebar.date_input(
-    "Rango fechas", [], key="date", help="Opcional: filtra por fecha")
-only_pending = st.sidebar.checkbox("Sólo Loss sin Resolver")
 
-# aplicar filtros
-df["Fecha_dt"] = pd.to_datetime(df["Fecha"])
-if start and end:
+date_sel = st.sidebar.date_input("Rango fechas", [])
+if isinstance(date_sel, (list, tuple)) and len(date_sel)==2:
+    start, end = date_sel
     df = df[(df["Fecha_dt"]>=pd.to_datetime(start)) &
             (df["Fecha_dt"]<=pd.to_datetime(end))]
-df = df[df["Win/Loss/BE"].isin(res_filter)]
+else:
+    start = end = None  # sin filtro
+
+only_pending = st.sidebar.checkbox("Sólo Loss sin Resolver")
+
 if only_pending:
     df = df[(df["Win/Loss/BE"]=="Loss") & (df["Resolved"]!="Yes")]
+
+df = df[df["Win/Loss/BE"].isin(res_filter)]
 
 st.title("🖼️ Galería de Trades")
 
 # ---------- Tarjetas ----------
 PER_PAGE = 20
-page = st.sidebar.number_input("Página", 1, max(1,int(len(df)/PER_PAGE)+1))
-start_i = (page-1)*PER_PAGE; end_i = start_i+PER_PAGE
+max_page = max(1, (len(df)-1)//PER_PAGE + 1)
+page = st.sidebar.number_input("Página", 1, max_page, step=1)
+start_i, end_i = (page-1)*PER_PAGE, (page)*PER_PAGE
 sub = df.sort_values("Datetime", ascending=False).iloc[start_i:end_i]
 
-def mini(card):
-    r = card["R"]; usd = card["USD"]
-    st.image(card["LossTradeReviewURL"] or card["Screenshot"], width=260,
-             caption=f"{card['Fecha']}  |  {card['Win/Loss/BE']}  |  {usd:+,.2f} USD  |  {r:+.2f} R")
+def card(row):
+    img = row["LossTradeReviewURL"] if row["LossTradeReviewURL"] else row["Screenshot"]
+    caption = (f"{row['Fecha']} | {row['Win/Loss/BE']} | "
+               f"{row['USD']:+,.2f} USD | {row['R']:+.2f} R")
+    st.image(img, width=260, caption=caption)
     with st.expander("Detalle"):
         for col in ["Symbol","Type","Volume","ErrorCategory","Comentarios",
                     "Post-Analysis","EOD","Resolved"]:
-            st.write(f"**{col}**: {card[col]}")
-        if card["Screenshot"]:
-            st.markdown(f"[Abrir Screenshot]({card['Screenshot']})")
-        if card["LossTradeReviewURL"]:
-            st.markdown(f"[Abrir Review]({card['LossTradeReviewURL']})")
+            st.write(f"**{col}**: {row[col]}")
+        if row["Screenshot"]:
+            st.markdown(f"[Abrir Screenshot]({row['Screenshot']})")
+        if row["LossTradeReviewURL"]:
+            st.markdown(f"[Abrir Review]({row['LossTradeReviewURL']})")
 
 cols = st.columns(4)
-for i,(idx,row) in enumerate(sub.iterrows()):
-    with cols[i%4]:
-        mini(row)
+for i, (_, r) in enumerate(sub.iterrows()):
+    with cols[i % 4]:
+        card(r)
