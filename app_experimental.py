@@ -117,6 +117,24 @@ with st.expander("2) Resúmenes semanales / mensuales", expanded=False):
                                               NetPNL=("USD","sum")).reset_index()
     st.dataframe(monthly); st.plotly_chart(px.bar(monthly,x="MonthTag",y="NetPNL",
                     title="PNL mensual"), use_container_width=True)
+    # ---------- Lotes operados ----------
+with st.expander("🚚 Lotes operados", expanded=False):
+    df["WeekTag"]  = df["Datetime"].dt.strftime("%Y-W%U")
+    df["MonthTag"] = df["Datetime"].dt.strftime("%Y-%m")
+    weekly  = df.groupby("WeekTag")["Volume"].sum().reset_index()
+    monthly = df.groupby("MonthTag")["Volume"].sum().reset_index()
+    st.write("### Semana")
+    st.bar_chart(weekly, x="WeekTag", y="Volume")
+    st.write("### Mes")
+    st.bar_chart(monthly, x="MonthTag", y="Volume")
+
+# ---------- Loss / BE sin Review ----------
+with st.expander("⚠️ Loss / BE sin Review", expanded=False):
+    pend = df[(df["Win/Loss/BE"].isin(["Loss","BE"])) &
+              (df["LossTradeReviewURL"]=="")]
+    st.write(f"Pendientes: **{len(pend)}**")
+    st.dataframe(pend[["Fecha","Hora","Symbol","USD","ErrorCategory"]])
+
 
 # ============================================================
 # 3) Calendario / timeline (trades reales)
