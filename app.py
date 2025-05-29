@@ -194,7 +194,7 @@ with st.expander("⚠️ Loss sin Resolver", expanded=False):
     else:
         # mostramos columnas clave
         st.dataframe(
-            pend[["Fecha", "Hora", "Symbol", "USD", "ErrorCategory"]],
+            pend[["Fecha", "Hora", "Screenshot", "USD", "ErrorCategory"]],
             height=200
         )
         # botón para saltar al editor del primer pendiente
