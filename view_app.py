@@ -1,7 +1,7 @@
 # -------------- view_app.py  (Galería) --------------
-import streamlit as st, pandas as pd, datetime as dt, requests, io
+import streamlit as st, pandas as pd
 from google.oauth2.service_account import Credentials
-import gspread, PIL.Image
+import gspread
 from streamlit.runtime.media_file_storage import MediaFileStorageError
 
 st.set_page_config("Quantitative Journal – Galería", layout="wide")
@@ -21,67 +21,65 @@ ws = (
 )
 df = pd.DataFrame(ws.get_all_records())
 
-# ---- Construir 'Datetime' si no existe ----
+# ---- 'Datetime' si no existe ----
 if "Datetime" not in df.columns and {"Fecha", "Hora"} <= set(df.columns):
     df["Datetime"] = pd.to_datetime(
         df["Fecha"] + " " + df["Hora"], errors="coerce"
     )
 
 if df.empty:
-    st.info("No hay datos.")
-    st.stop()
-
-df["Fecha_dt"] = pd.to_datetime(df["Fecha"])
+    st.info("No hay datos."); st.stop()
 
 # ---------- Filtros barra lateral ----------
 st.sidebar.header("Filtros")
 
+# 1) Resultado
 res_filter = st.sidebar.multiselect(
     "Resultado", ["Win", "Loss", "BE"], default=["Win", "Loss", "BE"]
 )
 
-date_sel = st.sidebar.date_input("Rango fechas", [])
-if isinstance(date_sel, (list, tuple)) and len(date_sel) == 2:
-    s, e = date_sel
-    df = df[(df["Fecha_dt"] >= pd.to_datetime(s)) &
-            (df["Fecha_dt"] <= pd.to_datetime(e))]
+# 2) Categoría de Error
+all_cats = sorted([c for c in df["ErrorCategory"].unique() if c])
+cat_filter = st.sidebar.multiselect("Error Category", all_cats, default=all_cats)
 
-only_pending = st.sidebar.checkbox("Sólo Loss sin Resolver")
-if only_pending:
-    df = df[(df["Win/Loss/BE"] == "Loss") & (df["Resolved"] != "Yes")]
+# 3) Resolved / Pendiente
+resolved_choice = st.sidebar.radio(
+    "Estado", ["Todos", "Solo sin Resolver", "Solo Resueltos"], index=0
+)
 
+# ---- aplicar filtros ----
 df = df[df["Win/Loss/BE"].isin(res_filter)]
+df = df[df["ErrorCategory"].isin(cat_filter) | (df["ErrorCategory"] == "")]
+
+if resolved_choice == "Solo sin Resolver":
+    df = df[df["Resolved"] != "Yes"]
+elif resolved_choice == "Solo Resueltos":
+    df = df[df["Resolved"] == "Yes"]
 
 st.title("🖼️ Galería de Trades")
 
 # ---------- Parámetros de paginación / columnas ----------
-PER_PAGE = 12          # 12 tarjetas por página
-N_COLS   = 3           # 3 columnas
-
+PER_PAGE = 12
+N_COLS = 3
 max_page = max(1, (len(df) - 1) // PER_PAGE + 1)
 page = st.sidebar.number_input("Página", 1, max_page, step=1)
 st.sidebar.write(f"{len(df)} tarjeta(s) · {max_page} página(s)")
 
 sub = df.sort_values("Datetime", ascending=False).iloc[
-        (page - 1) * PER_PAGE : page * PER_PAGE
+    (page - 1) * PER_PAGE : page * PER_PAGE
 ]
 
-# ---------- Helper imagen segura ----------
+# ---------- Helper ----------
 def safe_image(url: str, width=200):
     try:
-        # intento directo: que Streamlit embeba la URL
         st.image(url, width=width)
     except MediaFileStorageError:
         st.write("🖼️ (sin vista previa)")
 
-# ---------- Render tarjeta ----------
+# ---------- Tarjeta ----------
 def card(row):
-    # mini-miniatura = 1ª URL del campo Screenshot
-    if "," in row["Screenshot"]:
-        img_url = row["Screenshot"].split(",")[0].strip()
-    else:
-        img_url = row["Screenshot"].strip()
-
+    # mini-imagen = primera URL de Screenshot
+    img_url = row["Screenshot"].split(",")[0].strip() if row["Screenshot"] else ""
     caption = (
         f"{row['Fecha']}  |  {row['Win/Loss/BE']}  |  "
         f"{row['USD']:+,.2f} USD  |  {row['R']:+.2f} R"
