@@ -209,7 +209,7 @@ with st.expander("📊 Métricas / KPIs", expanded=False):
         conv_yes = ((df_real["Win/Loss/BE"] == "Loss") &
                     (df_real["SecondTradeValid?"] == "Yes")).sum()
         conv_pct = 100 * conv_yes / losses if losses else 0
-        k[3].metric("Loss convertibles", f"{conv_yes} / {losses}",
+        k[3].metric("SecondTradeValidation", f"{conv_yes} / {losses}",
                     f"{conv_pct:.1f}%")
 
         k[4].metric("R acumuladas", f"{r_total:.2f}")
