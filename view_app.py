@@ -100,20 +100,27 @@ def safe_image(url,w):
     try: st.image(url,width=w)
     except MediaFileStorageError: st.write("🖼️")
 
+# ---------- card ----------
 def card(r):
     img = r["Screenshot"].split(",")[0].strip() if r["Screenshot"] else ""
     caption = (f"#{r['Idx']} · {r['Fecha']} · {r['Win/Loss/BE']} · "
                f"{r['USD']:+,.2f} USD · {r['R']:+.2f} R")
-    safe_image(img,thumb_w); st.caption(caption)
-    st.markdown(f"**SecondTradeValid?**: {r['SecondTradeValid?']}")
+    safe_image(img, thumb_w)
+    st.caption(caption)
+
+    # ⬇️  Segunda línea dentro de la tarjeta
+    st.write(f"**SecondTradeValid?**: {r['SecondTradeValid?']}")
 
     with st.expander("Detalle"):
         for col in ["Symbol","Type","Volume","ErrorCategory",
                     "SecondTradeValid?","Comentarios","Post-Analysis",
                     "EOD","Resolved"]:
             st.write(f"**{col}**: {r[col]}")
-        if r["Screenshot"]:          st.markdown(f"[Screenshot]({r['Screenshot']})")
-        if r["LossTradeReviewURL"]:  st.markdown(f"[Review]({r['LossTradeReviewURL']})")
+        if r["Screenshot"]:
+            st.markdown(f"[Screenshot]({r['Screenshot']})")
+        if r["LossTradeReviewURL"]:
+            st.markdown(f"[Review]({r['LossTradeReviewURL']})")
+
 
 # ---------- render ----------
 cols = st.columns(N_COLS)
