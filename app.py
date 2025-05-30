@@ -19,7 +19,7 @@ ws = gspread.authorize(creds)\
 HEADER = [
     "Fecha","Hora","Symbol","Type","Volume","Ticket","Win/Loss/BE",
     "Gross_USD","Commission","USD","R","Screenshot","Comentarios",
-    "Post-Analysis","EOD","ErrorCategory","Resolved",
+    "Post-Analysis","EOD","ErrorCategory","Resolved","SecondTradeValid?",
     "LossTradeReviewURL","IdeaMissedURL","IsIdeaOnly","BEOutcome"
 ]
 if ws.row_values(1) != HEADER:
@@ -134,16 +134,20 @@ with st.expander("📊 Métricas / KPIs", expanded=False):
         k[6].metric("Gross Loss", fmt(gross_l))
 
         k = st.columns(7)
+
         k[0].metric("Comisiones", fmt(commissions_sum))
         k[1].metric("Equity", fmt(current_eq), f"{pct_change:.2f} %")
         k[2].metric("Dist. DD −10 %", fmt(dist_dd), f"{trades_to_burn} trades")
 
-        pend_cnt = len(df[(df["Win/Loss/BE"]=="Loss") & (df["Resolved"]!="Yes")])
-        k[3].metric("Loss sin Resolver", pend_cnt)
+        # ---------- KPI Loss convertibles ----------
+        conv = len(df[(df["Win/Loss/BE"] == "Loss") & (df["SecondTradeValid?"] == "Yes")])
+        conv_pct = 100 * conv / losses if losses else 0
+        k[3].metric("Loss convertibles", f"{conv}/{losses}", f"{conv_pct:.1f}%")
 
         k[4].metric("R acumuladas", f"{r_total:.2f}")
         k[5].metric("BE count", be_tr)
-        k[6].metric("Win/Loss/BE", f"{wins}/{losses}/{be_tr}")
+        k[6].metric("Win/L/L", f"{wins}/{losses}/{be_tr}")
+
 
 
         k=st.columns(7)
@@ -217,36 +221,72 @@ with st.expander("📜 Historial", expanded=False):
 # 5 · Editar / Borrar
 # ======================================================
 with st.expander("✏️ Editar / Borrar", expanded=False):
-    if df.empty: st.info("No hay trades.")
+    if df.empty:
+        st.info("No hay trades.")
     else:
-        idx=st.number_input("Idx",0,df.shape[0]-1,step=1)
-        sel=df.loc[idx].to_dict(); st.json(sel)
+        idx = st.number_input("Idx (0-based)", 0, df.shape[0] - 1, step=1)
+        sel = df.loc[idx].to_dict()
+        st.json(sel)
+
+        # -------- Borrar --------
         if st.button("Borrar"):
-            df=df.drop(idx).reset_index(drop=True)
+            df = df.drop(idx).reset_index(drop=True)
             ws.clear(); ws.append_row(HEADER)
             ws.append_rows(df[HEADER].values.tolist())
-            st.success("Borrado."); df=get_all()
+            st.success("Borrado."); df = get_all()
+
+        # -------- Editar --------
         with st.form("edit"):
-            new={}
-            for col in ["Fecha","Hora","Symbol","Type","Volume","Win/Loss/BE",
-                        "Gross_USD","Screenshot","Comentarios","Post-Analysis",
-                        "EOD","ErrorCategory","LossTradeReviewURL","IdeaMissedURL"]:
+            new = {}
+            for col in [
+                "Fecha","Hora","Symbol","Type","Volume","Win/Loss/BE",
+                "Gross_USD","Screenshot","Comentarios","Post-Analysis",
+                "EOD","ErrorCategory","LossTradeReviewURL","IdeaMissedURL"
+            ]:
                 if col in ("Comentarios","Post-Analysis"):
-                    new[col]=st.text_area(col,sel[col])
-                elif col=="Volume":
-                    new[col]=st.number_input(col,0.0,step=0.01,value=float(sel[col]))
+                    new[col] = st.text_area(col, sel[col])
+                elif col == "Volume":
+                    new[col] = st.number_input(
+                        col, 0.0, step=0.01, value=float(sel[col])
+                    )
                 else:
-                    new[col]=st.text_input(col,sel[col])
-            res_chk=st.checkbox("Resolved",sel["Resolved"].lower()=="yes")
-            if st.form_submit_button("Guardar"):
-                vol=float(new["Volume"]); comm=true_commission(vol)
-                gross=float(new["Gross_USD"])
-                if new["Win/Loss/BE"] in ("Loss","BE") and gross>0: gross=-abs(gross)
-                net=-comm if new["Win/Loss/BE"]=="BE" else gross-comm
+                    new[col] = st.text_input(col, sel[col])
+
+            res_chk = st.checkbox("Resolved", sel["Resolved"].lower() == "yes")
+
+            # ---------- NUEVO campo SecondTradeValid? ----------
+            new_second = st.selectbox(
+                "SecondTradeValid?",
+                ["N/A", "Yes", "No"],
+                index=["N/A", "Yes", "No"].index(sel.get("SecondTradeValid?", "N/A")),
+            )
+
+            submitted = st.form_submit_button("Guardar")
+            if submitted:
+                # --- recálculos ---
+                vol   = float(new["Volume"])
+                comm  = true_commission(vol)
+                gross = float(new["Gross_USD"])
+                if new["Win/Loss/BE"] in ("Loss", "BE") and gross > 0:
+                    gross = -abs(gross)
+                net   = -comm if new["Win/Loss/BE"] == "BE" else gross - comm
+
                 sel.update(new)
-                sel.update({"Commission":comm,"Gross_USD":gross if new["Win/Loss/BE"]!="BE" else 0,
-                            "USD":net,"R":calc_r(net),"Resolved":"Yes" if res_chk else "No"})
-                update_row(idx,sel); st.success("Guardado."); df=get_all()
+                sel.update(
+                    {
+                        "Commission": comm,
+                        "Gross_USD": 0 if new["Win/Loss/BE"] == "BE" else gross,
+                        "USD": net,
+                        "R": calc_r(net),
+                        "Resolved": "Yes" if res_chk else "No",
+                        "SecondTradeValid?": new_second,
+                    }
+                )
+
+                update_row(idx, sel)
+                st.success("Guardado.")
+                df = get_all()
+
 
 # ======================================================
 # 6 · Auditoría de integridad (DumpTrades)

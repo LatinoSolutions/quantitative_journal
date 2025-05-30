@@ -101,6 +101,12 @@ with st.expander("1) Métricas de rendimiento avanzado", expanded=False):
         use_container_width=True
     )
 
+    with st.expander("Second-Trade Wins (Loss)", expanded=False):
+    conv = df[(df["Win/Loss/BE"]=="Loss") & (df["SecondTradeValid?"]=="Yes")]
+    st.write(f"Convertibles: **{len(conv)} / {losses}** "
+             f"({100*len(conv)/losses:.1f}% )" if losses else "—")
+
+
 # ============================================================
 # 2) Resúmenes semanales / mensuales (trades reales)
 # ============================================================
