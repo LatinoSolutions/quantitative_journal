@@ -45,35 +45,35 @@ df_real["CumulUSD"] = initial_cap + df_real["USD"].cumsum()
 
 # ===============================================================
 # 1) Métricas de rendimiento avanzado
-#     · usa solo trades reales (df_real)
-#     · incluye Drawdown, consecutivos, Sharpe / Sortino
-#     · añade KPI de Break‑Even Outcome (Saved vs Missed)
 # ===============================================================
 with st.expander("1) Métricas de rendimiento avanzado", expanded=False):
-    # ---------- Consecutive wins / losses ----------
+
+    # -- Consecutive wins / losses ----------
     cw = cl = mxw = mxl = 0
     for res in df_real["Win/Loss/BE"]:
         if res == "Win":
-            cw += 1;  mxw = max(mxw, cw); cl = 0
+            cw += 1; mxw = max(mxw, cw); cl = 0
         elif res == "Loss":
-            cl += 1;  mxl = max(mxl, cl); cw = 0
+            cl += 1; mxl = max(mxl, cl); cw = 0
         else:
             cw = cl = 0
     c1, c2 = st.columns(2)
-    c1.metric("Max Wins consecutivos", mxw)
-    c2.metric("Max Losses consecutivos", mxl)
+    c1.metric("Max Wins consecutivos", mxw)
+    c2.metric("Max Losses consecutivos", mxl)
 
-    # ---------- Drawdown ----------
+    # -- Drawdown ----------
     dd = (df_real["CumulUSD"].cummax() - df_real["CumulUSD"])
     max_dd = dd.max()
-    st.write(f"**Máx Drawdown:** {round(max_dd,2)} USD "
-             f"({round(100*max_dd/initial_cap,2)} %)")
-    fig_dd = go.Figure(go.Scatter(x=df_real["Datetime"], y=dd,
-                                  mode="lines", line=dict(color="red")))
-    fig_dd.update_layout(title="Drawdown over time")
-    st.plotly_chart(fig_dd, use_container_width=True)
+    st.write(f"**Máx Drawdown:** {round(max_dd,2)} USD "
+             f"({round(100*max_dd/initial_cap,2)} %)")
+    st.plotly_chart(
+        go.Figure(go.Scatter(x=df_real["Datetime"], y=dd,
+                             mode="lines", line=dict(color="red")))
+        .update_layout(title="Drawdown over time"),
+        use_container_width=True
+    )
 
-    # ---------- Sharpe / Sortino (aprox diarios) ----------
+    # -- Sharpe / Sortino (aprox diarios) ----------
     daily_ret = df_real.groupby(df_real["Datetime"].dt.date)["USD"].sum() / initial_cap
     sharpe  = daily_ret.mean() / daily_ret.std(ddof=1) if daily_ret.std(ddof=1) else 0
     downside = daily_ret[daily_ret<0].std(ddof=1)
@@ -81,30 +81,35 @@ with st.expander("1) Métricas de rendimiento avanzado", expanded=False):
     st.write(f"**Sharpe (aprox):** {round(sharpe,2)}  |  "
              f"**Sortino (aprox):** {round(sortino,2)}")
 
-    # ---------- Break‑Even Outcome KPI ----------
-    be_saved  = ((df_real["Win/Loss/BE"]=="BE") &
-                 (df_real["BEOutcome"]=="SavedCapital")).sum()
-    be_missed = ((df_real["Win/Loss/BE"]=="BE") &
-                 (df_real["BEOutcome"]=="MissedOpportunity")).sum()
-
-    st.write("#### Break‑Even Outcomes")
-    st.write(f"**Saved Capital:** {be_saved}   |   "
-             f"**Missed Opportunity:** {be_missed}")
-
-    be_kpi_df = pd.DataFrame({
-        "Outcome": ["SavedCapital", "MissedOpportunity"],
-        "Count":   [be_saved, be_missed]
-    })
+    # -- Break-Even Outcome ----------
+    be_saved  = ((df_real["Win/Loss/BE"]=="BE") & (df_real["BEOutcome"]=="SavedCapital")).sum()
+    be_missed = ((df_real["Win/Loss/BE"]=="BE") & (df_real["BEOutcome"]=="MissedOpportunity")).sum()
+    st.write("#### Break-Even Outcomes")
     st.plotly_chart(
-        px.bar(be_kpi_df, x="Outcome", y="Count",
-               title="Conteo Break‑Even Outcome", text="Count"),
-        use_container_width=True
-    )
+        px.bar(pd.DataFrame({"Outcome":["Saved","Missed"],
+                             "Count":[be_saved,be_missed]}),
+               x="Outcome",y="Count",text="Count",title="BE Outcome"),
+        use_container_width=True)
 
-    with st.expander("Second-Trade Wins (Loss)", expanded=False):
-    conv = df[(df["Win/Loss/BE"]=="Loss") & (df["SecondTradeValid?"]=="Yes")]
-    st.write(f"Convertibles: **{len(conv)} / {losses}** "
-             f"({100*len(conv)/losses:.1f}% )" if losses else "—")
+    # -- Loss convertibles ----------
+    conv_yes = ((df_real["Win/Loss/BE"]=="Loss") & (df_real["SecondTradeValid?"]=="Yes")).sum()
+    conv_no  = ((df_real["Win/Loss/BE"]=="Loss") & (df_real["SecondTradeValid?"]=="No")).sum()
+    conv_pct = 100*conv_yes/(conv_yes+conv_no) if (conv_yes+conv_no) else 0
+    st.write(f"### Loss convertibles: {conv_yes}/{conv_yes+conv_no}  "
+             f"→ **{conv_pct:.1f}%**")
+
+    st.plotly_chart(
+        px.bar(pd.DataFrame({"Status":["Convertible","No"],
+                             "Count":[conv_yes,conv_no]}),
+               x="Status",y="Count",text="Count",
+               title="Loss convertibles (Yes vs No)"),
+        use_container_width=True)
+
+    with st.expander("Ver índices de Loss convertibles"):
+        conv_list = df_real[(df_real["Win/Loss/BE"]=="Loss") &
+                            (df_real["SecondTradeValid?"]=="Yes")][["Idx","Fecha","Symbol"]]
+        st.dataframe(conv_list)
+
 
 
 # ============================================================

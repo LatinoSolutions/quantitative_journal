@@ -88,43 +88,65 @@ with st.expander("➕ Registrar trade", expanded=False):
 # 2 · KPI panel
 # ======================================================
 with st.expander("📊 Métricas / KPIs", expanded=False):
-    if df.empty: st.info("Aún no hay trades.")
+    if df.empty:
+        st.info("Aún no hay trades.")
     else:
-        df_real = df[df["Win/Loss/BE"]!="Adj"].copy()
-        df_real["USD"]=pd.to_numeric(df_real["USD"],errors="coerce")
-        total=len(df_real); wins=(df_real["Win/Loss/BE"]=="Win").sum()
-        losses=(df_real["Win/Loss/BE"]=="Loss").sum()
-        be_tr=(df_real["Win/Loss/BE"]=="BE").sum()
-        win_rate=round(100*wins/total,2) if total else 0
-        gross_p=df_real[df_real["USD"]>0]["USD"].sum()
-        gross_l=df_real[df_real["USD"]<0]["USD"].sum()
-        net_p=df_real["USD"].sum()
-        commissions_sum=df_real["Commission"].sum()
-        prof_factor=round(abs(gross_p/gross_l),2) if gross_l else 0
-        payoff=(round(df_real[df_real["USD"]>0]["USD"].mean() /
-                      abs(df_real[df_real["USD"]<0]["USD"].mean()),2)
-                if losses else 0)
+        df_real = df[df["Win/Loss/BE"] != "Adj"].copy()
+        df_real["USD"] = pd.to_numeric(df_real["USD"], errors="coerce")
 
-        current_eq=initial_cap+net_p
-        pct_change=100*(current_eq-initial_cap)/initial_cap
-        dd_limit=initial_cap*0.90
-        dist_dd=current_eq-dd_limit
-        trades_to_burn=math.ceil(abs(dist_dd)/(initial_cap*0.0025)) if dist_dd<0 \
-                        else math.ceil(dist_dd/(initial_cap*0.0025))
-        f1_target=initial_cap*1.08; f2_target=initial_cap*1.13
-        dist_f1=f1_target-current_eq; dist_f2=f2_target-current_eq
-        f1_done=dist_f1<=0
-        risk_amt=initial_cap*0.0025
-        r_total=net_p/risk_amt
-        r_f1=max(dist_f1,0)/risk_amt; r_f2=max(dist_f2,0)/risk_amt
-        pct_f1=100*max(dist_f1,0)/initial_cap
-        pct_f2=100*max(dist_f2,0)/initial_cap
-        t13_f1=max(0,int(np.ceil(r_f1/3))); t13_f2=max(0,int(np.ceil(r_f2/3)))
-        t14_f1=max(0,int(np.ceil(r_f1/4))); t14_f2=max(0,int(np.ceil(r_f2/4)))
-        t15_f1=max(0,int(np.ceil(r_f1/5))); t15_f2=max(0,int(np.ceil(r_f2/5)))
+        total   = len(df_real)
+        wins    = (df_real["Win/Loss/BE"] == "Win").sum()
+        losses  = (df_real["Win/Loss/BE"] == "Loss").sum()
+        be_tr   = (df_real["Win/Loss/BE"] == "BE").sum()
+        win_rate = round(100 * wins / total, 2) if total else 0
 
-        fmt=lambda v:f"{v:,.2f}"
-        k=st.columns(7)
+        gross_p = df_real[df_real["USD"] > 0]["USD"].sum()
+        gross_l = df_real[df_real["USD"] < 0]["USD"].sum()
+        net_p   = df_real["USD"].sum()
+        commissions_sum = df_real["Commission"].sum()
+        prof_factor = round(abs(gross_p / gross_l), 2) if gross_l else 0
+        payoff = (round(
+            df_real[df_real["USD"] > 0]["USD"].mean() /
+            abs(df_real[df_real["USD"] < 0]["USD"].mean()), 2)
+            if losses else 0)
+
+        current_eq = initial_cap + net_p
+        pct_change = 100 * (current_eq - initial_cap) / initial_cap
+        dd_limit   = initial_cap * 0.90
+        dist_dd    = current_eq - dd_limit
+        trades_to_burn = math.ceil(abs(dist_dd) / (initial_cap * 0.0025))
+
+        f1_target = initial_cap * 1.08
+        f2_target = initial_cap * 1.13
+        dist_f1   = f1_target - current_eq
+        dist_f2   = f2_target - current_eq
+        f1_done   = dist_f1 <= 0
+
+        risk_amt  = initial_cap * 0.0025
+        r_total   = net_p / risk_amt
+        r_f1      = max(dist_f1, 0) / risk_amt
+        r_f2      = max(dist_f2, 0) / risk_amt
+        pct_f1    = 100 * max(dist_f1, 0) / initial_cap
+        pct_f2    = 100 * max(dist_f2, 0) / initial_cap
+        t13_f1    = max(0, int(np.ceil(r_f1 / 3)))
+        t13_f2    = max(0, int(np.ceil(r_f2 / 3)))
+        t14_f1    = max(0, int(np.ceil(r_f1 / 4)))
+        t14_f2    = max(0, int(np.ceil(r_f2 / 4)))
+        t15_f1    = max(0, int(np.ceil(r_f1 / 5)))
+        t15_f2    = max(0, int(np.ceil(r_f2 / 5)))
+
+        # --- KPI Loss convertibles ---
+        conv_yes = ((df_real["Win/Loss/BE"] == "Loss") &
+                    (df_real["SecondTradeValid?"] == "Yes")).sum()
+        conv_no  = ((df_real["Win/Loss/BE"] == "Loss") &
+                    (df_real["SecondTradeValid?"] == "No")).sum()
+        conv_pct = 100 * conv_yes / (conv_yes + conv_no) if (conv_yes + conv_no) else 0
+        delta_col = "normal" if conv_pct >= 50 else "inverse"  # verde ≥50 %, rojo <50 %
+
+        fmt = lambda v: f"{v:,.2f}"
+
+        # ---------- Primer bloque ----------
+        k = st.columns(7)
         k[0].metric("Total Trades", total)
         k[1].metric("Win Rate", f"{win_rate:.2f} %")
         k[2].metric("Profit Factor", fmt(prof_factor))
@@ -133,24 +155,19 @@ with st.expander("📊 Métricas / KPIs", expanded=False):
         k[5].metric("Gross Profit", fmt(gross_p))
         k[6].metric("Gross Loss", fmt(gross_l))
 
+        # ---------- Segundo bloque ----------
         k = st.columns(7)
-
         k[0].metric("Comisiones", fmt(commissions_sum))
         k[1].metric("Equity", fmt(current_eq), f"{pct_change:.2f} %")
         k[2].metric("Dist. DD −10 %", fmt(dist_dd), f"{trades_to_burn} trades")
-
-        # ---------- KPI Loss convertibles ----------
-        conv = len(df[(df["Win/Loss/BE"] == "Loss") & (df["SecondTradeValid?"] == "Yes")])
-        conv_pct = 100 * conv / losses if losses else 0
-        k[3].metric("Loss convertibles", f"{conv}/{losses}", f"{conv_pct:.1f}%")
-
+        k[3].metric("Loss convertibles", f"{conv_yes}/{conv_yes+conv_no}",
+                    f"{conv_pct:.1f} %", delta_color=delta_col)
         k[4].metric("R acumuladas", f"{r_total:.2f}")
         k[5].metric("BE count", be_tr)
         k[6].metric("Win/L/L", f"{wins}/{losses}/{be_tr}")
 
-
-
-        k=st.columns(7)
+        # ---------- Tercer bloque ----------
+        k = st.columns(7)
         k[0].metric("Fase 1 +8 %", "✅" if f1_done else fmt(dist_f1),
                     None if f1_done else f"{r_f1:.1f} R | {pct_f1:.2f}%")
         k[1].metric("Fase 2 +13 %", fmt(dist_f2),
@@ -161,14 +178,18 @@ with st.expander("📊 Métricas / KPIs", expanded=False):
         k[5].metric("Trades 1:4/5 F2", f"{t14_f2}/{t15_f2}")
         k[6].write(" ")
 
-        st.plotly_chart(px.pie(names=["Win","Loss","BE"],
-                               values=[wins,losses,be_tr]), use_container_width=True)
+        # ---------- Gráficos ----------
+        st.plotly_chart(
+            px.pie(names=["Win","Loss","BE"], values=[wins, losses, be_tr]),
+            use_container_width=True
+        )
 
-        df_sorted=df_real.sort_values("Datetime")
-        df_sorted["Equity"]=initial_cap+df_sorted["USD"].cumsum()
-        st.plotly_chart(px.line(df_sorted,x="Datetime",y="Equity",
-                                title="Equity curve"), use_container_width=True)
-
+        df_sorted = df_real.sort_values("Datetime")
+        df_sorted["Equity"] = initial_cap + df_sorted["USD"].cumsum()
+        st.plotly_chart(
+            px.line(df_sorted, x="Datetime", y="Equity", title="Equity curve"),
+            use_container_width=True
+        )
 # ======================================================
 # 3 · Balance Adjustment (fantasma)
 # ======================================================
