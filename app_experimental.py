@@ -110,8 +110,6 @@ with st.expander("1) Métricas de rendimiento avanzado", expanded=False):
                             (df_real["SecondTradeValid?"]=="Yes")][["Idx","Fecha","Symbol"]]
         st.dataframe(conv_list)
 
-
-
 # ============================================================
 # 2) Resúmenes semanales / mensuales (trades reales)
 # ============================================================

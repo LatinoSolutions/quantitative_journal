@@ -26,15 +26,39 @@ if ws.row_values(1) != HEADER:
     ws.update('A1', [HEADER])
 
 # ---------- Helpers ----------
+import math
+
 initial_cap = 60000
-def true_commission(vol): return round(vol*4.0,2)
-def calc_r(net): risk=initial_cap*0.0025; return round(net/risk,2) if risk else 0
-def get_all(): 
+
+def true_commission(vol: float) -> float:
+    return round(vol * 4.0, 2)
+
+def calc_r(net: float) -> float:
+    risk = initial_cap * 0.0025          # 0.25 %
+    return round(net / risk, 2) if risk else 0
+
+def get_all():
     df = pd.DataFrame(ws.get_all_records())
     if not df.empty:
-        df["Datetime"]=pd.to_datetime(df["Fecha"]+" "+df["Hora"], errors="coerce")
+        df["Datetime"] = pd.to_datetime(
+            df["Fecha"] + " " + df["Hora"], errors="coerce")
     return df
-def update_row(i,d): ws.update(f"A{i+2}:U{i+2}", [[d.get(c,"") for c in HEADER]])
+
+# --- NUEVO: util para convertir número → letra de columna ---
+def col_letter(n: int) -> str:
+    """1 -> A, 26 -> Z, 27 -> AA, …"""
+    s = ""
+    while n:
+        n, r = divmod(n - 1, 26)
+        s = chr(65 + r) + s
+    return s
+
+def update_row(i: int, d: dict):
+    """Actualiza fila i (0-based) con todas las columnas de HEADER."""
+    row  = i + 2                          # +1 por header, +1 índice 0-based
+    last = col_letter(len(HEADER))        # calcula la última letra
+    ws.update(f"A{row}:{last}{row}",
+              [[d.get(c, "") for c in HEADER]])
 
 df = get_all()
 st.title("Quantitative Journal · Registro & Métricas")
@@ -245,79 +269,54 @@ with st.expander("✏️ Editar / Borrar", expanded=False):
     if df.empty:
         st.info("No hay trades.")
     else:
-        # ---------- elegir fila ----------
-        idx = st.number_input("Idx (0-based)", 0, df.shape[0] - 1, step=1)
+        idx = st.number_input("Idx", 0, df.shape[0]-1, step=1)
         sel = df.loc[idx].to_dict()
         st.json(sel)
 
-        # ---------- Borrar ----------
+        # ---------- BORRAR ----------
         if st.button("Borrar"):
             df = df.drop(idx).reset_index(drop=True)
             ws.clear(); ws.append_row(HEADER)
             ws.append_rows(df[HEADER].values.tolist())
-            st.success("Borrado.")
-            df = get_all()
+            st.success("Borrado."); df = get_all()
 
-        # ---------- Editar ----------
-        with st.form("edit_form"):
+        # ---------- EDITAR ----------
+        with st.form("edit"):
             new = {}
-            for col in [
-                "Fecha","Hora","Symbol","Type","Volume","Win/Loss/BE",
-                "Gross_USD","Screenshot","Comentarios","Post-Analysis",
-                "EOD","ErrorCategory","LossTradeReviewURL","IdeaMissedURL"
-            ]:
-                if col in ("Comentarios", "Post-Analysis"):
+            for col in ["Fecha","Hora","Symbol","Type","Volume","Win/Loss/BE",
+                        "Gross_USD","Screenshot","Comentarios","Post-Analysis",
+                        "EOD","ErrorCategory","SecondTradeValid?",
+                        "LossTradeReviewURL","IdeaMissedURL"]:
+                if col in ("Comentarios","Post-Analysis"):
                     new[col] = st.text_area(col, sel[col])
                 elif col == "Volume":
-                    new[col] = st.number_input(
-                        col, 0.0, step=0.01, value=float(sel[col])
-                    )
+                    new[col] = st.number_input(col, 0.0, step=0.01, value=float(sel[col]))
                 else:
-                    new[col] = st.text_input(col, sel[col])
+                    new[col] = st.text_input(col, sel.get(col, ""))
 
-            # Resolved ✅
-            res_chk = st.checkbox(
-                "Resolved", sel.get("Resolved", "No").lower() == "yes"
-            )
+            res_chk = st.checkbox("Resolved", sel["Resolved"].lower() == "yes")
 
-            # ---------- SecondTradeValid? ----------
-            val_second = sel.get("SecondTradeValid?", "N/A")
-            if val_second not in ("N/A", "Yes", "No"):
-                val_second = "N/A"
-
-            new_second = st.selectbox(
-                "SecondTradeValid?",
-                ["N/A", "Yes", "No"],
-                index=["N/A", "Yes", "No"].index(val_second),
-            )
-
-            # ---------- Guardar ----------
-            if st.form_submit_button("Guardar cambios"):
+            if st.form_submit_button("Guardar"):
+                # --- recalcular números ---
                 vol   = float(new["Volume"])
                 comm  = true_commission(vol)
                 gross = float(new["Gross_USD"])
-
-                # forzar signo correcto
-                if new["Win/Loss/BE"] in ("Loss", "BE") and gross > 0:
+                if new["Win/Loss/BE"] in ("Loss","BE") and gross > 0:
                     gross = -abs(gross)
-
                 net = -comm if new["Win/Loss/BE"] == "BE" else gross - comm
 
                 sel.update(new)
-                sel.update(
-                    {
-                        "Commission": comm,
-                        "Gross_USD": 0 if new["Win/Loss/BE"] == "BE" else gross,
-                        "USD": net,
-                        "R": calc_r(net),
-                        "Resolved": "Yes" if res_chk else "No",
-                        "SecondTradeValid?": new_second,
-                    }
-                )
+                sel.update({
+                    "Commission": comm,
+                    "Gross_USD": gross if new["Win/Loss/BE"] != "BE" else 0,
+                    "USD": net,
+                    "R": calc_r(net),
+                    "Resolved": "Yes" if res_chk else "No",
+                })
 
                 update_row(idx, sel)
-                st.success("Trade actualizado.")
-                df = get_all()
+                st.success("Guardado."); df = get_all()
+
 
 # ======================================================
 # 6 · Auditoría de integridad (DumpTrades)
