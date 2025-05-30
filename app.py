@@ -214,7 +214,7 @@ with st.expander("📊 Métricas / KPIs", expanded=False):
 
         k[4].metric("R acumuladas", f"{r_total:.2f}")
         k[5].metric("BE count", be_tr)
-        k[6].metric("Win/L/L", f"{wins} / {losses} / {be_tr}")
+        k[6].metric("Win/L/BE", f"{wins} / {losses} / {be_tr}")
 
         # ---------- TERCERA fila ----------
         k = st.columns(7)
