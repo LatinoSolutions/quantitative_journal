@@ -224,26 +224,28 @@ with st.expander("✏️ Editar / Borrar", expanded=False):
     if df.empty:
         st.info("No hay trades.")
     else:
+        # ---------- elegir fila ----------
         idx = st.number_input("Idx (0-based)", 0, df.shape[0] - 1, step=1)
         sel = df.loc[idx].to_dict()
         st.json(sel)
 
-        # -------- Borrar --------
+        # ---------- Borrar ----------
         if st.button("Borrar"):
             df = df.drop(idx).reset_index(drop=True)
             ws.clear(); ws.append_row(HEADER)
             ws.append_rows(df[HEADER].values.tolist())
-            st.success("Borrado."); df = get_all()
+            st.success("Borrado.")
+            df = get_all()
 
-        # -------- Editar --------
-        with st.form("edit"):
+        # ---------- Editar ----------
+        with st.form("edit_form"):
             new = {}
             for col in [
                 "Fecha","Hora","Symbol","Type","Volume","Win/Loss/BE",
                 "Gross_USD","Screenshot","Comentarios","Post-Analysis",
                 "EOD","ErrorCategory","LossTradeReviewURL","IdeaMissedURL"
             ]:
-                if col in ("Comentarios","Post-Analysis"):
+                if col in ("Comentarios", "Post-Analysis"):
                     new[col] = st.text_area(col, sel[col])
                 elif col == "Volume":
                     new[col] = st.number_input(
@@ -252,24 +254,33 @@ with st.expander("✏️ Editar / Borrar", expanded=False):
                 else:
                     new[col] = st.text_input(col, sel[col])
 
-            res_chk = st.checkbox("Resolved", sel["Resolved"].lower() == "yes")
+            # Resolved ✅
+            res_chk = st.checkbox(
+                "Resolved", sel.get("Resolved", "No").lower() == "yes"
+            )
 
-            # ---------- NUEVO campo SecondTradeValid? ----------
+            # ---------- SecondTradeValid? ----------
+            val_second = sel.get("SecondTradeValid?", "N/A")
+            if val_second not in ("N/A", "Yes", "No"):
+                val_second = "N/A"
+
             new_second = st.selectbox(
                 "SecondTradeValid?",
                 ["N/A", "Yes", "No"],
-                index=["N/A", "Yes", "No"].index(sel.get("SecondTradeValid?", "N/A")),
+                index=["N/A", "Yes", "No"].index(val_second),
             )
 
-            submitted = st.form_submit_button("Guardar")
-            if submitted:
-                # --- recálculos ---
+            # ---------- Guardar ----------
+            if st.form_submit_button("Guardar cambios"):
                 vol   = float(new["Volume"])
                 comm  = true_commission(vol)
                 gross = float(new["Gross_USD"])
+
+                # forzar signo correcto
                 if new["Win/Loss/BE"] in ("Loss", "BE") and gross > 0:
                     gross = -abs(gross)
-                net   = -comm if new["Win/Loss/BE"] == "BE" else gross - comm
+
+                net = -comm if new["Win/Loss/BE"] == "BE" else gross - comm
 
                 sel.update(new)
                 sel.update(
@@ -284,9 +295,8 @@ with st.expander("✏️ Editar / Borrar", expanded=False):
                 )
 
                 update_row(idx, sel)
-                st.success("Guardado.")
+                st.success("Trade actualizado.")
                 df = get_all()
-
 
 # ======================================================
 # 6 · Auditoría de integridad (DumpTrades)
