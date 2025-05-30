@@ -43,12 +43,12 @@ initial_cap = 60000
 df_real = df_real.sort_values("Datetime")
 df_real["CumulUSD"] = initial_cap + df_real["USD"].cumsum()
 
-# ===============================================================
+# ===================# ===============================================================
 # 1) Métricas de rendimiento avanzado
 # ===============================================================
 with st.expander("1) Métricas de rendimiento avanzado", expanded=False):
 
-    # -- Consecutive wins / losses ----------
+    # ---------- Consecutive wins / losses ----------
     cw = cl = mxw = mxl = 0
     for res in df_real["Win/Loss/BE"]:
         if res == "Win":
@@ -61,7 +61,7 @@ with st.expander("1) Métricas de rendimiento avanzado", expanded=False):
     c1.metric("Max Wins consecutivos", mxw)
     c2.metric("Max Losses consecutivos", mxl)
 
-    # -- Drawdown ----------
+    # ---------- Drawdown ----------
     dd = (df_real["CumulUSD"].cummax() - df_real["CumulUSD"])
     max_dd = dd.max()
     st.write(f"**Máx Drawdown:** {round(max_dd,2)} USD "
@@ -73,42 +73,53 @@ with st.expander("1) Métricas de rendimiento avanzado", expanded=False):
         use_container_width=True
     )
 
-    # -- Sharpe / Sortino (aprox diarios) ----------
-    daily_ret = df_real.groupby(df_real["Datetime"].dt.date)["USD"].sum() / initial_cap
+    # ---------- Sharpe / Sortino (aprox diarios) ----------
+    daily_ret = (df_real.groupby(df_real["Datetime"].dt.date)["USD"].sum()
+                 / initial_cap)
     sharpe  = daily_ret.mean() / daily_ret.std(ddof=1) if daily_ret.std(ddof=1) else 0
     downside = daily_ret[daily_ret<0].std(ddof=1)
     sortino = daily_ret.mean() / downside if downside else 0
     st.write(f"**Sharpe (aprox):** {round(sharpe,2)}  |  "
              f"**Sortino (aprox):** {round(sortino,2)}")
 
-    # -- Break-Even Outcome ----------
-    be_saved  = ((df_real["Win/Loss/BE"]=="BE") & (df_real["BEOutcome"]=="SavedCapital")).sum()
-    be_missed = ((df_real["Win/Loss/BE"]=="BE") & (df_real["BEOutcome"]=="MissedOpportunity")).sum()
+    # ---------- Break-Even Outcome ----------
+    be_saved  = ((df_real["Win/Loss/BE"]=="BE") &
+                 (df_real["BEOutcome"]=="SavedCapital")).sum()
+    be_missed = ((df_real["Win/Loss/BE"]=="BE") &
+                 (df_real["BEOutcome"]=="MissedOpportunity")).sum()
     st.write("#### Break-Even Outcomes")
     st.plotly_chart(
         px.bar(pd.DataFrame({"Outcome":["Saved","Missed"],
                              "Count":[be_saved,be_missed]}),
                x="Outcome",y="Count",text="Count",title="BE Outcome"),
-        use_container_width=True)
+        use_container_width=True
+    )
 
-    # -- Loss convertibles ----------
-    conv_yes = ((df_real["Win/Loss/BE"]=="Loss") & (df_real["SecondTradeValid?"]=="Yes")).sum()
-    conv_no  = ((df_real["Win/Loss/BE"]=="Loss") & (df_real["SecondTradeValid?"]=="No")).sum()
-    conv_pct = 100*conv_yes/(conv_yes+conv_no) if (conv_yes+conv_no) else 0
-    st.write(f"### Loss convertibles: {conv_yes}/{conv_yes+conv_no}  "
-             f"→ **{conv_pct:.1f}%**")
+    # ---------- Loss convertibles ----------
+    sec = df_real["SecondTradeValid?"].fillna("").str.strip().str.lower()
+    conv_yes = ((df_real["Win/Loss/BE"]=="Loss") & (sec=="yes")).sum()
+    conv_no  = ((df_real["Win/Loss/BE"]=="Loss") & (sec=="no")).sum()
+    total_loss = conv_yes + conv_no
+    conv_pct = 100*conv_yes/total_loss if total_loss else 0
+    color = "green" if conv_pct >= 50 else "red"
+
+    st.markdown(f"### Loss convertibles: "
+                f"<span style='color:{color}'>"
+                f"{conv_yes}/{total_loss} → {conv_pct:.1f}%</span>",
+                unsafe_allow_html=True)
 
     st.plotly_chart(
         px.bar(pd.DataFrame({"Status":["Convertible","No"],
                              "Count":[conv_yes,conv_no]}),
                x="Status",y="Count",text="Count",
                title="Loss convertibles (Yes vs No)"),
-        use_container_width=True)
+        use_container_width=True
+    )
 
     with st.expander("Ver índices de Loss convertibles"):
-        conv_list = df_real[(df_real["Win/Loss/BE"]=="Loss") &
-                            (df_real["SecondTradeValid?"]=="Yes")][["Idx","Fecha","Symbol"]]
-        st.dataframe(conv_list)
+        conv_list = df_real[(df_real["Win/Loss/BE"]=="Loss") & (sec=="yes")]
+        st.dataframe(conv_list[["Idx","Fecha","Symbol"]])
+
 
 # ============================================================
 # 2) Resúmenes semanales / mensuales (trades reales)

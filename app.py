@@ -67,43 +67,65 @@ st.title("Quantitative Journal · Registro & Métricas")
 # 1 · Registrar trade
 # ======================================================
 with st.expander("➕ Registrar trade", expanded=False):
-    c1,c2 = st.columns(2)
-    with c1:
-        fecha = st.date_input("Fecha").strftime("%Y-%m-%d")
-        hora  = st.time_input("Hora").strftime("%H:%M:%S")
-        symbol= st.text_input("Symbol","EURUSD")
-        ttype = st.selectbox("Type",["Long","Short"])
-        volume= st.number_input("Volume (lotes)",0.0,step=0.01)
-        result= st.selectbox("Resultado",["Win","Loss","BE"])
-    with c2:
-        gross     = st.number_input("Gross USD (antes comisión, ±)",0.0,step=0.01)
-        screenshot= st.text_input("Screenshot URL")
-        comments  = st.text_area("Comentarios")
-        post_an   = st.text_area("Post-Analysis")
-        eod_link  = st.text_input("EOD (link Canva)")
-        err_cat   = st.text_input("Error Category")
-        resolved  = st.checkbox("¿Error Resuelto?",False)
-        ltr_urls  = st.text_input("LossTradeReviewURL(s)")
-        missed_url= st.text_input("IdeaMissedURL(s)")
+    c1, c2 = st.columns(2)
 
+    # ---------- columna 1 ----------
+    with c1:
+        fecha  = st.date_input("Fecha").strftime("%Y-%m-%d")
+        hora   = st.time_input("Hora").strftime("%H:%M:%S")
+        symbol = st.text_input("Symbol", "EURUSD")
+        ttype  = st.selectbox("Type", ["Long", "Short"])
+        volume = st.number_input("Volume (lotes)", 0.0, step=0.01)
+        result = st.selectbox("Resultado", ["Win", "Loss", "BE"])
+
+    # ---------- columna 2 ----------
+    with c2:
+        gross       = st.number_input("Gross USD (antes comisión, ±)",
+                                      0.0, step=0.01, format="%.2f")
+        screenshot  = st.text_input("Screenshot URL")
+        comments    = st.text_area("Comentarios")
+        post_an     = st.text_area("Post-Analysis")
+        eod_link    = st.text_input("EOD (link Canva)")
+        err_cat     = st.text_input("Error Category")
+
+        # NUEVO selector SecondTradeValid?
+        if result == "Loss":
+            second_valid = st.selectbox("SecondTradeValid?",
+                                        ["N/A", "Yes", "No"], index=0)
+        else:
+            second_valid = "N/A"
+
+        resolved_chk = st.checkbox("¿Error Resuelto?", False)
+        ltr_urls     = st.text_input("LossTradeReviewURL(s)")
+        missed_urls  = st.text_input("IdeaMissedURL(s)")
+
+    # ---------- cálculos numéricos ----------
     commission = true_commission(volume)
-    if result in ("Loss","BE") and gross>0: gross=-abs(gross)
-    if result=="BE":
+    if result in ("Loss", "BE") and gross > 0:
+        gross = -abs(gross)
+    if result == "BE":
         net_usd = -commission
         gross   = 0.0
     else:
-        net_usd = gross-commission
+        net_usd = gross - commission
     r_val = calc_r(net_usd)
 
+    # ---------- guardar ----------
     if st.button("Agregar Trade"):
-        trade = {**{c:"" for c in HEADER}, **{
-            "Fecha":fecha,"Hora":hora,"Symbol":symbol,"Type":ttype,
-            "Volume":volume,"Win/Loss/BE":result,"Gross_USD":gross,
-            "Commission":commission,"USD":net_usd,"R":r_val,
-            "Screenshot":screenshot,"Comentarios":comments,
-            "Post-Analysis":post_an,"EOD":eod_link,
-            "ErrorCategory":err_cat,"Resolved":"Yes" if resolved else "No",
-            "LossTradeReviewURL":ltr_urls,"IdeaMissedURL":missed_url}}
+        trade = {
+            **{c: "" for c in HEADER},  # inicializa claves vacías
+            "Fecha": fecha, "Hora": hora, "Symbol": symbol, "Type": ttype,
+            "Volume": volume, "Win/Loss/BE": result, "Gross_USD": gross,
+            "Commission": commission, "USD": net_usd, "R": r_val,
+            "Screenshot": screenshot, "Comentarios": comments,
+            "Post-Analysis": post_an, "EOD": eod_link,
+            "ErrorCategory": err_cat,
+            "Resolved": "Yes" if resolved_chk else "No",
+            "SecondTradeValid?": second_valid,
+            "LossTradeReviewURL": ltr_urls,
+            "IdeaMissedURL": missed_urls,
+            "IsIdeaOnly": "No", "BEOutcome": ""
+        }
         ws.append_row([trade[c] for c in HEADER])
         st.success("✔️ Trade agregado")
         df = get_all()
@@ -290,11 +312,16 @@ with st.expander("✏️ Editar / Borrar", expanded=False):
                 if col in ("Comentarios","Post-Analysis"):
                     new[col] = st.text_area(col, sel[col])
                 elif col == "Volume":
-                    new[col] = st.number_input(col, 0.0, step=0.01, value=float(sel[col]))
+                    new[col] = st.number_input(col, 0.0, step=0.01,
+                                               value=float(sel[col]))
+                elif col == "SecondTradeValid?":
+                    new[col] = st.selectbox(col, ["N/A","Yes","No"],
+                         index=["N/A","Yes","No"].index(sel.get(col,"N/A")))
                 else:
                     new[col] = st.text_input(col, sel.get(col, ""))
 
-            res_chk = st.checkbox("Resolved", sel["Resolved"].lower() == "yes")
+            res_chk = st.checkbox("Resolved",
+                                  sel["Resolved"].lower() == "yes")
 
             if st.form_submit_button("Guardar"):
                 # --- recalcular números ---
