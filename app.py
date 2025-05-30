@@ -284,14 +284,14 @@ with st.expander("⚠️ Loss sin Resolver", expanded=False):
 with st.expander("📜 Historial", expanded=False):
     st.dataframe(df, use_container_width=True)
 
-# ======================================================
+# ======================================================# ======================================================
 # 5 · Editar / Borrar
 # ======================================================
 with st.expander("✏️ Editar / Borrar", expanded=False):
     if df.empty:
         st.info("No hay trades.")
     else:
-        idx = st.number_input("Idx", 0, df.shape[0]-1, step=1)
+        idx = st.number_input("Idx", 0, df.shape[0] - 1, step=1)
         sel = df.loc[idx].to_dict()
         st.json(sel)
 
@@ -309,21 +309,25 @@ with st.expander("✏️ Editar / Borrar", expanded=False):
                         "Gross_USD","Screenshot","Comentarios","Post-Analysis",
                         "EOD","ErrorCategory","SecondTradeValid?",
                         "LossTradeReviewURL","IdeaMissedURL"]:
+
                 if col in ("Comentarios","Post-Analysis"):
-                    new[col] = st.text_area(col, sel[col])
+                    new[col] = st.text_area(col, sel.get(col,""))
                 elif col == "Volume":
                     new[col] = st.number_input(col, 0.0, step=0.01,
-                                               value=float(sel[col]))
+                                               value=float(sel.get(col,0)))
                 elif col == "SecondTradeValid?":
+                    current = str(sel.get(col,"N/A")).strip().title()
+                    if current not in ("Yes","No","N/A"): current = "N/A"
                     new[col] = st.selectbox(col, ["N/A","Yes","No"],
-                         index=["N/A","Yes","No"].index(sel.get(col,"N/A")))
+                                            index=["N/A","Yes","No"].index(current))
                 else:
                     new[col] = st.text_input(col, sel.get(col, ""))
 
             res_chk = st.checkbox("Resolved",
-                                  sel["Resolved"].lower() == "yes")
+                                  str(sel.get("Resolved","No")).lower() == "yes")
 
-            if st.form_submit_button("Guardar"):
+            submit = st.form_submit_button("Guardar")
+            if submit:
                 # --- recalcular números ---
                 vol   = float(new["Volume"])
                 comm  = true_commission(vol)
@@ -343,7 +347,6 @@ with st.expander("✏️ Editar / Borrar", expanded=False):
 
                 update_row(idx, sel)
                 st.success("Guardado."); df = get_all()
-
 
 # ======================================================
 # 6 · Auditoría de integridad (DumpTrades)
