@@ -62,6 +62,7 @@ def update_row(i: int, d: dict):
 
 df = get_all()
 st.title("Quantitative Journal · Registro & Métricas")
+
 # ======================================================
 # 📅 · Daily Impressions  (calendario + formulario)
 # ======================================================
@@ -73,7 +74,7 @@ with st.expander("📅 Daily Impressions", expanded=False):
         fin = (ini + pd.offsets.MonthEnd(0))
         return ini, fin
 
-    # ---------- lee / crea hoja ----------
+    # ---------- hoja Google Sheets ----------
     try:
         ws_imp = gspread.authorize(creds)\
                  .open_by_key("1D4AlYBD1EClp0gGe0qnxr8NeGMbpSvdOx8yHimQDmbE")\
@@ -93,18 +94,13 @@ with st.expander("📅 Daily Impressions", expanded=False):
     m = st.session_state.get("imp_m", today.month)
 
     nav1, nav2, nav3, nav4, nav5 = st.columns([1,1,3,1,1])
-    if nav1.button("⏮"):
-        m -= 1
-    if nav2.button("◀"):
-        m -= 1
-    if nav4.button("▶"):
-        m += 1
-    if nav5.button("⏭"):
-        m += 1
-    if m < 1:  y, m = y-1, 12
-    if m > 12: y, m = y+1, 1
-    st.session_state["imp_y"] = y
-    st.session_state["imp_m"] = m
+    if nav1.button("⏮"):  m -= 1
+    if nav2.button("◀"):  m -= 1
+    if nav4.button("▶"):  m += 1
+    if nav5.button("⏭"):  m += 1
+    if m < 1:   y, m = y-1, 12
+    if m > 12:  y, m = y+1,  1
+    st.session_state.update({"imp_y":y, "imp_m":m})
 
     month_name = datetime(y, m, 1).strftime("%B %Y")
     nav3.markdown(f"<h4 style='text-align:center'>{month_name}</h4>",
@@ -115,9 +111,7 @@ with st.expander("📅 Daily Impressions", expanded=False):
     # ---------- grid calendario ----------
     cols = st.columns(7)
     start_weekday = m_ini.weekday()                       # lunes=0
-    blanked = 0
-    for b in range(start_weekday):                        # espacios inicio
-        cols[b].write(" ")
+    for _ in range(start_weekday): cols[_].write(" ")
 
     date_range = pd.date_range(m_ini, m_fin)
     for i, date_val in enumerate(date_range, start=start_weekday):
@@ -132,10 +126,9 @@ with st.expander("📅 Daily Impressions", expanded=False):
 
         # ---------- botón número ----------
         if col.button(str(date_val.day), key=f"btn_{date_str}"):
-            st.session_state["imp_day_sel"] = date_str
-            st.experimental_rerun()
+            st.session_state["imp_day_sel"] = date_str    # <-- sin rerun
 
-        # ---------- mini-thumbnail debajo ----------
+        # ---------- mini-thumbnail ----------
         if has_imp and imp_today.iloc[0]["ImageURLs"]:
             first_url = imp_today.iloc[0]["ImageURLs"].splitlines()[0].strip()
             try:
@@ -145,45 +138,38 @@ with st.expander("📅 Daily Impressions", expanded=False):
         else:
             col.write(" ")
 
-    # ---------- FORMULARIO / MODAL ----------
+    # ---------- FORM / MODAL ----------
     day_sel = st.session_state.get("imp_day_sel", None)
     if day_sel:
         def _imp_form(day_sel_str:str):
-            st.subheader(f"Impression – {day_sel_str}")
             record = imp_df[imp_df["Fecha"] == day_sel_str]
-            first_imp = record.iloc[0]["FirstImpression"] if not record.empty else ""
-            reflect   = record.iloc[0]["Reflection"]      if not record.empty else ""
-            good_val  = record.iloc[0]["Good?"]           if not record.empty else "N/A"
-            urls      = record.iloc[0]["ImageURLs"]       if not record.empty else ""
-
+            getv = lambda k, default="": (record.iloc[0][k] if not record.empty else default)
             with st.form("imp_form"):
-                f_imp = st.text_area("✏️ Primera impresión", value=first_imp)
-                reflect_imp = st.text_area("🔍 Reflexión / Análisis", value=reflect)
-                good_sel = st.selectbox("¿Fue acertada?",
-                                        ["N/A","Yes","No"],
-                                        index=["N/A","Yes","No"].index(good_val or "N/A"))
-                img_urls = st.text_area("URLs imágenes (una por línea)", value=urls)
+                f_imp   = st.text_area("✏️ Primera impresión", getv("FirstImpression"))
+                reflect = st.text_area("🔍 Reflexión / Análisis", getv("Reflection"))
+                good_sel= st.selectbox("¿Fue acertada?", ["N/A","Yes","No"],
+                                       index=["N/A","Yes","No"].index(getv("Good?","N/A") or "N/A"))
+                img_urls= st.text_area("URLs imágenes (una por línea)",
+                                       getv("ImageURLs"))
                 if st.form_submit_button("💾 Guardar / Actualizar"):
-                    # guarda (insert or update)
                     row = {"Fecha":day_sel_str, "FirstImpression":f_imp,
-                           "Reflection":reflect_imp, "Good?":good_sel,
+                           "Reflection":reflect, "Good?":good_sel,
                            "ImageURLs":img_urls}
+                    header = ws_imp.row_values(1)
                     if record.empty:
-                        ws_imp.append_row([row[c] for c in ws_imp.row_values(1)])
+                        ws_imp.append_row([row[c] for c in header])
                     else:
                         r = record.index[0] + 2
-                        ws_imp.update(f"A{r}:E{r}", [[row[c] for c in ws_imp.row_values(1)]])
+                        ws_imp.update(f"A{r}:E{r}", [[row[c] for c in header]])
                     st.success("Guardado ✔️"); st.experimental_rerun()
 
-        # -- decide modal o expander según versión /
+        # modal si la versión lo permite, fallback expander
         try:
             with st.modal(f"Impression – {day_sel}"):
                 _imp_form(day_sel)
         except Exception:
-            # fallback si modal no está disponible en versión local
             with st.expander(f"Impression – {day_sel}", expanded=True):
                 _imp_form(day_sel)
-
 
 # ======================================================
 # 1 · Registrar trade
