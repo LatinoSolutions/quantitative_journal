@@ -63,12 +63,12 @@ def update_row(i: int, d: dict):
 df = get_all()
 st.title("Quantitative Journal · Registro & Métricas")
 
-# ======================================================# ======================================================
-# 0 · 📅 Daily Impressions  (antes del Registrador de trades)
+# ======================================================
+# 0 · 📅 Daily Impressions  (antes del Registrador)
 # ======================================================
 with st.expander("📅  Daily Impressions (click en un día para editar)", expanded=False):
 
-    # ---------- Helpers de hoja ----------
+    # ---------- helpers Google Sheet ----------
     IMP_SHEET = "daily_impressions"
     try:
         ws_imp = ws.spreadsheet.worksheet(IMP_SHEET)
@@ -77,80 +77,81 @@ with st.expander("📅  Daily Impressions (click en un día para editar)", expan
         ws_imp.update("A1:D1", [["Fecha","Impression","Reflection","ImageURLs"]])
 
     imp_df = pd.DataFrame(ws_imp.get_all_records())
-
-    # ⭐️  importante: crea columnas vacías si la pestaña está recién creada
     if imp_df.empty:
         imp_df = pd.DataFrame(columns=["Fecha","Impression","Reflection","ImageURLs"])
     else:
         imp_df["Fecha"] = pd.to_datetime(imp_df["Fecha"]).dt.date
 
-    # ---------- calendario ----------
+    # ---------- selector mes ----------
     today     = datetime.today().date()
     month_ref = st.session_state.get("imp_month", today.replace(day=1))
 
     col_prev, col_title, col_next = st.columns([1,3,1])
-    if col_prev.button("◀️", key="imp_prev"):
+    if col_prev.button("◀️"):
         month_ref = (month_ref - timedelta(days=1)).replace(day=1)
-    if col_next.button("▶️", key="imp_next"):
+    if col_next.button("▶️"):
         nxt = month_ref.replace(day=28) + timedelta(days=4)
         month_ref = nxt.replace(day=1)
     col_title.markdown(f"### {month_ref.strftime('%B %Y')}")
     st.session_state["imp_month"] = month_ref
 
+    # ---------- cuadrícula del calendario ----------
     first_wd = (month_ref.weekday() + 1) % 7
-    days_in_month = (month_ref.replace(month=month_ref.month%12+1, day=1) -
-                     timedelta(days=1)).day
-    grid = ["" for _ in range(first_wd)] + list(range(1, days_in_month+1))
-    rows = (len(grid)+6)//7
-    grid += [""]*(rows*7-len(grid))
+    days_in_month = (month_ref.replace(month=month_ref.month % 12 + 1, day=1)
+                     - timedelta(days=1)).day
+    grid = ["" for _ in range(first_wd)] + list(range(1, days_in_month + 1))
+    rows = (len(grid) + 6) // 7
+    grid += [""] * (rows * 7 - len(grid))
 
     for r in range(rows):
         cols = st.columns(7)
-        for c, d in enumerate(grid[r*7:(r+1)*7]):
+        for c, d in enumerate(grid[r * 7 : (r+1)*7]):
             if d == "": 
                 cols[c].write(" ")
                 continue
             date_val = month_ref.replace(day=d)
             has_imp  = not imp_df[imp_df["Fecha"] == date_val].empty
-            style = "✅" if has_imp else "➕"
-            if cols[c].button(f"{d} {style}", key=f"imp_day_{date_val}"):
+            icon = "✅" if has_imp else "➕"
+            if cols[c].button(f"{d} {icon}", key=f"imp_day_{date_val}"):
                 st.session_state["imp_sel"] = date_val
 
-    # ---------- editor ----------
-    if "imp_sel" in st.session_state:
-        day_sel = st.session_state["imp_sel"]
-        row = imp_df[imp_df["Fecha"] == day_sel].iloc[0] \
-              if not imp_df[imp_df["Fecha"] == day_sel].empty else {}
+# ---------- editor FUERA del expander (evita anidación) ----------
+def _imp_form(day_sel):
+    # fila existente (o vacía)
+    row = imp_df[imp_df["Fecha"] == day_sel].iloc[0] \
+          if not imp_df[imp_df["Fecha"] == day_sel].empty else {}
+    with st.form(f"imp_form_{day_sel}"):
+        imp_txt  = st.text_area("✏️ Primera impresión",   row.get("Impression",""))
+        refl_txt = st.text_area("🔄 Reflexión posterior", row.get("Reflection",""))
+        img_str  = st.text_area("🖼️ URLs imágenes (1 por línea)", row.get("ImageURLs",""))
+        submitted = st.form_submit_button("💾 Guardar")
+    if submitted:
+        new_row = {"Fecha": str(day_sel),
+                   "Impression": imp_txt,
+                   "Reflection": refl_txt,
+                   "ImageURLs": img_str.strip()}
+        if row == {}:
+            ws_imp.append_row([new_row[c] for c in ["Fecha","Impression",
+                                                    "Reflection","ImageURLs"]])
+        else:
+            idx = imp_df[imp_df["Fecha"] == day_sel].index[0] + 2   # + header
+            ws_imp.update(f"A{idx}:D{idx}", [[new_row["Fecha"],
+                                              new_row["Impression"],
+                                              new_row["Reflection"],
+                                              new_row["ImageURLs"]]])
+        st.success("Guardado ✔️")
+        st.experimental_rerun()
 
-        use_modal = hasattr(st, "modal")
-        ctx = st.modal(f"Impression – {day_sel}") \
-              if use_modal else st.expander(f"Impression – {day_sel}", expanded=True)
+if "imp_sel" in st.session_state:
+    day_sel = st.session_state["imp_sel"]
+    if hasattr(st, "modal"):
+        with st.modal(f"Impression – {day_sel}"):
+            _imp_form(day_sel)
+    else:                                  # fallback versiones antiguas
+        with st.container():
+            st.markdown(f"### Impression – {day_sel}")
+            _imp_form(day_sel)
 
-        with ctx:
-            with st.form(f"imp_form_{day_sel}"):
-                imp_txt  = st.text_area("✏️ Primera impresión",   row.get("Impression",""))
-                refl_txt = st.text_area("🔄 Reflexión posterior", row.get("Reflection",""))
-                img_str  = st.text_area("🖼️ URLs imágenes (1 por línea)", row.get("ImageURLs",""))
-                submitted = st.form_submit_button("💾 Guardar")
-
-            if submitted:
-                new_row = {
-                    "Fecha": str(day_sel),
-                    "Impression": imp_txt,
-                    "Reflection": refl_txt,
-                    "ImageURLs": img_str.strip()
-                }
-                if row == {}:
-                    ws_imp.append_row([new_row[c] for c in ["Fecha","Impression",
-                                                             "Reflection","ImageURLs"]])
-                else:
-                    idx = imp_df[imp_df["Fecha"] == day_sel].index[0] + 2
-                    ws_imp.update(f"A{idx}:D{idx}", [[new_row["Fecha"],
-                                                      new_row["Impression"],
-                                                      new_row["Reflection"],
-                                                      new_row["ImageURLs"]]])
-                st.success("Guardado ✔️")
-                st.experimental_rerun()
 
 # ======================================================
 # 1 · Registrar trade
