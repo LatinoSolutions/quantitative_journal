@@ -62,114 +62,128 @@ def update_row(i: int, d: dict):
 
 df = get_all()
 st.title("Quantitative Journal · Registro & Métricas")
-
 # ======================================================
-# 0 · 📅 Daily Impressions  (antes del Registrador)
+# 📅 · Daily Impressions  (calendario + formulario)
 # ======================================================
-with st.expander("📅  Daily Impressions (click en un día para editar)", expanded=False):
+with st.expander("📅 Daily Impressions", expanded=False):
 
-    # ---------- helpers Google Sheet ----------
-    IMP_SHEET = "daily_impressions"
-    IMP_HEADER = ["Fecha", "Impression", "Reflection",
-                  "ImageURLs", "Outcome"]          # ← NUEVA columna
+    # ---------- util ----------
+    def month_bounds(year:int, month:int):
+        ini = pd.Timestamp(year, month, 1)
+        fin = (ini + pd.offsets.MonthEnd(0))
+        return ini, fin
 
+    # ---------- lee / crea hoja ----------
     try:
-        ws_imp = ws.spreadsheet.worksheet(IMP_SHEET)
+        ws_imp = gspread.authorize(creds)\
+                 .open_by_key("1D4AlYBD1EClp0gGe0qnxr8NeGMbpSvdOx8yHimQDmbE")\
+                 .worksheet("daily_impressions")
     except gspread.exceptions.WorksheetNotFound:
-        ws_imp = ws.spreadsheet.add_worksheet(title=IMP_SHEET,
-                                              rows=1000, cols=20)
-        ws_imp.update("A1", [IMP_HEADER])
-
-    # asegura que la cabecera sea la correcta
-    if ws_imp.row_values(1) != IMP_HEADER:
-        ws_imp.update("A1", [IMP_HEADER])
+        ws_imp = ws.add_worksheet("daily_impressions", rows=1000, cols=10)
+        ws_imp.append_row(["Fecha","FirstImpression","Reflection",
+                           "Good?","ImageURLs"])
 
     imp_df = pd.DataFrame(ws_imp.get_all_records())
-    if imp_df.empty:
-        imp_df = pd.DataFrame(columns=IMP_HEADER)
-    else:
-        imp_df["Fecha"] = pd.to_datetime(imp_df["Fecha"]).dt.date
+    if "Fecha" in imp_df.columns:
+        imp_df["Fecha"] = pd.to_datetime(imp_df["Fecha"]).dt.strftime("%Y-%m-%d")
 
-    # ---------- selector mes ----------
-    today     = datetime.today().date()
-    month_ref = st.session_state.get("imp_month", today.replace(day=1))
+    # ---------- navegación de mes ----------
+    today = datetime.today()
+    y = st.session_state.get("imp_y", today.year)
+    m = st.session_state.get("imp_m", today.month)
 
-    col_prev, col_title, col_next = st.columns([1, 3, 1])
-    if col_prev.button("◀️"):
-        month_ref = (month_ref - timedelta(days=1)).replace(day=1)
-    if col_next.button("▶️"):
-        nxt = month_ref.replace(day=28) + timedelta(days=4)
-        month_ref = nxt.replace(day=1)
-    col_title.markdown(f"### {month_ref.strftime('%B %Y')}")
-    st.session_state["imp_month"] = month_ref
+    nav1, nav2, nav3, nav4, nav5 = st.columns([1,1,3,1,1])
+    if nav1.button("⏮"):
+        m -= 1
+    if nav2.button("◀"):
+        m -= 1
+    if nav4.button("▶"):
+        m += 1
+    if nav5.button("⏭"):
+        m += 1
+    if m < 1:  y, m = y-1, 12
+    if m > 12: y, m = y+1, 1
+    st.session_state["imp_y"] = y
+    st.session_state["imp_m"] = m
 
-    # ---------- calendario ----------
-    first_wd      = (month_ref.weekday() + 1) % 7
-    days_in_month = (month_ref.replace(month=month_ref.month % 12 + 1, day=1)
-                     - timedelta(days=1)).day
-    grid = ["" for _ in range(first_wd)] + list(range(1, days_in_month + 1))
-    rows = (len(grid) + 6) // 7
-    grid += [""] * (rows * 7 - len(grid))
+    month_name = datetime(y, m, 1).strftime("%B %Y")
+    nav3.markdown(f"<h4 style='text-align:center'>{month_name}</h4>",
+                  unsafe_allow_html=True)
 
-    def day_has_entry(day):
-        return not imp_df[imp_df["Fecha"] == day].empty
+    m_ini, m_fin = month_bounds(y, m)
 
-    for r in range(rows):
-        cols = st.columns(7)
-        for c, d in enumerate(grid[r*7:(r+1)*7]):
-            if d == "":
-                cols[c].write(" ")
-                continue
-            date_val = month_ref.replace(day=d)
-            has_imp  = day_has_entry(date_val)
-            icon = "✅" if has_imp else "🕘"
-            if cols[c].button(f"{d} {icon}", key=f"imp_day_{date_val}"):
-                st.session_state["imp_sel"] = date_val
+    # ---------- grid calendario ----------
+    cols = st.columns(7)
+    start_weekday = m_ini.weekday()                       # lunes=0
+    blanked = 0
+    for b in range(start_weekday):                        # espacios inicio
+        cols[b].write(" ")
 
-# ---------- editor FUERA del expander ----------
-def _imp_form(day_sel):
-    row = imp_df[imp_df["Fecha"] == day_sel].iloc[0] \
-          if day_has_entry(day_sel) else {}
+    date_range = pd.date_range(m_ini, m_fin)
+    for i, date_val in enumerate(date_range, start=start_weekday):
+        if i % 7 == 0 and i:
+            cols = st.columns(7)                          # nueva fila
+        col = cols[i % 7]
 
-    with st.form(f"imp_form_{day_sel}"):
-        imp_txt  = st.text_area("✏️ Primera impresión", row.get("Impression", ""))
-        refl_txt = st.text_area("🔄 Reflexión posterior", row.get("Reflection", ""))
-        img_str  = st.text_area("🖼️ URLs imágenes (1 por línea)",
-                                row.get("ImageURLs", ""))
-        outcome  = st.selectbox("🎯 ¿La impresión fue acertada?",
-                                ["", "Correcta", "Incorrecta"],
-                                index=["", "Correcta", "Incorrecta"]
-                                      .index(row.get("Outcome", "")))
-        submitted = st.form_submit_button("💾 Guardar")
+        # ¿Existe impresión?
+        date_str = date_val.strftime("%Y-%m-%d")
+        imp_today = imp_df[imp_df["Fecha"] == date_str]
+        has_imp   = not imp_today.empty
 
-    if submitted:
-        new_row = {"Fecha": str(day_sel),
-                   "Impression": imp_txt,
-                   "Reflection": refl_txt,
-                   "ImageURLs": img_str.strip(),
-                   "Outcome": outcome}
+        # ---------- botón número ----------
+        if col.button(str(date_val.day), key=f"btn_{date_str}"):
+            st.session_state["imp_day_sel"] = date_str
+            st.experimental_rerun()
 
-        if row == {}:                                      # insertar
-            ws_imp.append_row([new_row[c] for c in IMP_HEADER])
-        else:                                              # actualizar
-            idx = imp_df[imp_df["Fecha"] == day_sel].index[0] + 2
-            ws_imp.update(f"A{idx}:E{idx}",
-                          [[new_row[c] for c in IMP_HEADER]])
-        st.success("Guardado ✔️")
-        # cerramos el modal y refrescamos calendario
-        st.session_state.pop("imp_sel", None)
-        st.experimental_rerun()
+        # ---------- mini-thumbnail debajo ----------
+        if has_imp and imp_today.iloc[0]["ImageURLs"]:
+            first_url = imp_today.iloc[0]["ImageURLs"].splitlines()[0].strip()
+            try:
+                col.image(first_url, width=60)
+            except st.runtime.media_file_storage.MediaFileStorageError:
+                col.write("🖼️")
+        else:
+            col.write(" ")
 
-# --------- mostrar modal / contenedor ----------
-if "imp_sel" in st.session_state:
-    sel = st.session_state["imp_sel"]
-    if hasattr(st, "modal"):                   # Streamlit ≥1.25
-        with st.modal(f"Impression – {sel}"):
-            _imp_form(sel)
-    else:                                      # fallback
-        with st.container():
-            st.markdown(f"### Impression – {sel}")
-            _imp_form(sel)
+    # ---------- FORMULARIO / MODAL ----------
+    day_sel = st.session_state.get("imp_day_sel", None)
+    if day_sel:
+        def _imp_form(day_sel_str:str):
+            st.subheader(f"Impression – {day_sel_str}")
+            record = imp_df[imp_df["Fecha"] == day_sel_str]
+            first_imp = record.iloc[0]["FirstImpression"] if not record.empty else ""
+            reflect   = record.iloc[0]["Reflection"]      if not record.empty else ""
+            good_val  = record.iloc[0]["Good?"]           if not record.empty else "N/A"
+            urls      = record.iloc[0]["ImageURLs"]       if not record.empty else ""
+
+            with st.form("imp_form"):
+                f_imp = st.text_area("✏️ Primera impresión", value=first_imp)
+                reflect_imp = st.text_area("🔍 Reflexión / Análisis", value=reflect)
+                good_sel = st.selectbox("¿Fue acertada?",
+                                        ["N/A","Yes","No"],
+                                        index=["N/A","Yes","No"].index(good_val or "N/A"))
+                img_urls = st.text_area("URLs imágenes (una por línea)", value=urls)
+                if st.form_submit_button("💾 Guardar / Actualizar"):
+                    # guarda (insert or update)
+                    row = {"Fecha":day_sel_str, "FirstImpression":f_imp,
+                           "Reflection":reflect_imp, "Good?":good_sel,
+                           "ImageURLs":img_urls}
+                    if record.empty:
+                        ws_imp.append_row([row[c] for c in ws_imp.row_values(1)])
+                    else:
+                        r = record.index[0] + 2
+                        ws_imp.update(f"A{r}:E{r}", [[row[c] for c in ws_imp.row_values(1)]])
+                    st.success("Guardado ✔️"); st.experimental_rerun()
+
+        # -- decide modal o expander según versión /
+        try:
+            with st.modal(f"Impression – {day_sel}"):
+                _imp_form(day_sel)
+        except Exception:
+            # fallback si modal no está disponible en versión local
+            with st.expander(f"Impression – {day_sel}", expanded=True):
+                _imp_form(day_sel)
+
 
 # ======================================================
 # 1 · Registrar trade
