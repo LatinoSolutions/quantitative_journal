@@ -63,8 +63,8 @@ def update_row(i: int, d: dict):
 df = get_all()
 st.title("Quantitative Journal · Registro & Métricas")
 
-# ======================================================# ======================================================
-# 📅 · Daily Impressions  (calendario + formulario)
+# ======================================================
+# 📅 · Daily Impressions (calendario + formulario)
 # ======================================================
 with st.expander("📅 Daily Impressions", expanded=False):
 
@@ -79,111 +79,86 @@ with st.expander("📅 Daily Impressions", expanded=False):
                            "Good?","ImageURLs"])
 
     imp_df = pd.DataFrame(ws_imp.get_all_records())
-    if "Fecha" in imp_df.columns:
+    if not imp_df.empty:
         imp_df["Fecha"] = pd.to_datetime(imp_df["Fecha"]).dt.strftime("%Y-%m-%d")
 
-    # ---------- mes actual en session_state ----------
+    # ---------- mes actual ----------
     today = datetime.today()
-    y = st.session_state.get("imp_y", today.year)
-    m = st.session_state.get("imp_m", today.month)
+    y = st.session_state.setdefault("imp_y", today.year)
+    m = st.session_state.setdefault("imp_m", today.month)
 
-    # ---------- helpers ----------
-    def month_bounds(yy:int, mm:int):
-        ini = pd.Timestamp(yy, mm, 1)
-        fin = (ini + pd.offsets.MonthEnd(0))
-        return ini, fin
+    def _shift_months(delta:int):
+        """Avanza/retrocede n meses y guarda en session_state"""
+        ym = datetime(y, m, 1) + pd.DateOffset(months=delta)
+        st.session_state["imp_y"], st.session_state["imp_m"] = ym.year, ym.month
+        st.experimental_rerun()
 
-    def _shift(n:int):
-        """Mueve mes ±n y guarda en session_state"""
-        nonlocal y, m
-        m += n
-        if m < 1:   y, m = y-1, 12
-        if m > 12:  y, m = y+1, 1
-        st.session_state["imp_y"] = y
-        st.session_state["imp_m"] = m
-
-    # ---------- navegación mes ----------
+    # ---------- navegación ----------
     nav1, nav2, nav3, nav4, nav5 = st.columns([1,1,3,1,1])
-    if nav1.button("⏮"): _shift(-12)
-    if nav2.button("◀"):  _shift(-1)
-    if nav4.button("▶"):  _shift(+1)
-    if nav5.button("⏭"): _shift(+12)
+    if nav1.button("⏮"): _shift_months(-12)
+    if nav2.button("◀"):  _shift_months(-1)
     nav3.markdown(f"<h4 style='text-align:center'>{datetime(y,m,1):%B %Y}</h4>",
                   unsafe_allow_html=True)
+    if nav4.button("▶"):  _shift_months(+1)
+    if nav5.button("⏭"): _shift_months(+12)
 
-    m_ini, m_fin = month_bounds(y, m)
-
-    # ---------- grid calendario ----------
+    # ---------- calendario ----------
+    m_ini = datetime(y, m, 1)
+    m_end = (m_ini + pd.offsets.MonthEnd()).to_pydatetime()
     cols = st.columns(7)
-    start_wd = m_ini.weekday()                          # lunes = 0
-    for _ in range(start_wd):
-        cols[_].write(" ")
+    offset = m_ini.weekday()        # lunes = 0
+    for _ in range(offset): cols[_].write(" ")
 
-    for i, date_val in enumerate(pd.date_range(m_ini, m_fin),
-                                 start=start_wd):
-        if i % 7 == 0 and i:
+    for i, d in enumerate(pd.date_range(m_ini, m_end)):
+        if i and (offset+i) % 7 == 0:
             cols = st.columns(7)
-        col = cols[i % 7]
+        col = cols[(offset+i) % 7]
 
-        date_str = date_val.strftime("%Y-%m-%d")
-        imp_today = imp_df[imp_df["Fecha"] == date_str]
-        has_imp   = not imp_today.empty
+        d_str = d.strftime("%Y-%m-%d")
+        record = imp_df[imp_df["Fecha"] == d_str]
+        has_imp = not record.empty
 
-        # ---------- BOTÓN día ----------
-        if col.button(str(date_val.day), key=f"btn_{date_str}"):
-            st.session_state["imp_day_sel"] = date_str
+        # botón día
+        if col.button(str(d.day), key=f"btn_{d_str}"):
+            st.session_state["imp_sel"] = d_str
 
-        # ---------- MINI-THUMB ----------
-        if has_imp:
-            first_url = imp_today.iloc[0]["ImageURLs"].splitlines()[0].strip() \
-                        if imp_today.iloc[0]["ImageURLs"] else ""
-            if first_url:
-                try:
-                    col.image(first_url, width=60)
-                except st.runtime.media_file_storage.MediaFileStorageError:
-                    col.write("🖼️")
+        # mini-thumb
+        if has_imp and record.iloc[0]["ImageURLs"]:
+            thumb = record.iloc[0]["ImageURLs"].splitlines()[0].strip()
+            try:
+                col.image(thumb, width=50)
+            except st.runtime.media_file_storage.MediaFileStorageError:
+                col.write("🖼️")
+        else:
+            col.write(" ")
+
+    # ---------- formulario ----------
+    sel = st.session_state.get("imp_sel")
+    if sel:
+        rec = imp_df[imp_df["Fecha"] == sel]
+        def v(col, default=""): return rec.iloc[0][col] if not rec.empty else default
+
+        st.markdown("---")
+        st.subheader(f"Impression – {sel}")
+
+        f_imp   = st.text_area("✏️ Primera impresión", v("FirstImpression"))
+        reflect = st.text_area("🔍 Reflexión / Análisis", v("Reflection"))
+        good    = st.selectbox("¿Acertada?", ["N/A","Yes","No"],
+                               index=["N/A","Yes","No"].index(v("Good?","N/A") or "N/A"))
+        urls    = st.text_area("URLs imágenes (una por línea)", v("ImageURLs"))
+
+        if st.button("💾 Guardar / Actualizar"):
+            row = {"Fecha":sel,"FirstImpression":f_imp,
+                   "Reflection":reflect,"Good?":good,"ImageURLs":urls}
+            hdr = ws_imp.row_values(1)
+            if rec.empty:
+                ws_imp.append_row([row[c] for c in hdr])
             else:
-                col.write(" ")
+                r = rec.index[0] + 2
+                ws_imp.update(f"A{r}:E{r}", [[row[c] for c in hdr]])
+            st.success("Guardado ✔️")
+            st.experimental_rerun()
 
-    # ---------- FORMULARIO ----------
-    day_sel = st.session_state.get("imp_day_sel")
-    if day_sel:
-        def _imp_form():
-            record = imp_df[imp_df["Fecha"] == day_sel]
-            getv = lambda k, d="": (record.iloc[0][k] if not record.empty else d)
-
-            f_imp   = st.text_area("✏️ Primera impresión",
-                                   getv("FirstImpression"))
-            reflect = st.text_area("🔍 Reflexión / Análisis",
-                                   getv("Reflection"))
-            good_sel= st.selectbox("¿Fue acertada?",
-                                   ["N/A","Yes","No"],
-                                   index=["N/A","Yes","No"]
-                                         .index(getv("Good?","N/A") or "N/A"))
-            img_urls= st.text_area("URLs imágenes (una por línea)",
-                                   getv("ImageURLs"))
-
-            if st.button("💾 Guardar / Actualizar"):
-                row = {"Fecha":day_sel, "FirstImpression":f_imp,
-                       "Reflection":reflect, "Good?":good_sel,
-                       "ImageURLs":img_urls}
-                header = ws_imp.row_values(1)
-                if record.empty:
-                    ws_imp.append_row([row[c] for c in header])
-                else:
-                    r = record.index[0] + 2
-                    ws_imp.update(f"A{r}:E{r}",
-                                  [[row[c] for c in header]])
-                st.success("Guardado ✔️"); st.experimental_rerun()
-
-        # Modal si es compatible, contenedor estándar si no
-        try:
-            with st.modal(f"Impression – {day_sel}"):
-                _imp_form()
-        except Exception:
-            st.markdown("---")
-            st.subheader(f"Impression – {day_sel}")
-            _imp_form()
 
 # ======================================================
 # 1 · Registrar trade
@@ -261,57 +236,54 @@ with st.expander("📊 Métricas / KPIs", expanded=False):
     else:
         # ----------- datos reales -----------
         df_real = df[df["Win/Loss/BE"] != "Adj"].copy()
-        df_real["USD"]    = pd.to_numeric(df_real["USD"], errors="coerce")
-        df_real["Volume"] = pd.to_numeric(df_real["Volume"], errors="coerce")
+        df_real[["USD","Volume"]] = df_real[["USD","Volume"]].apply(
+                                        pd.to_numeric, errors="coerce")
 
         total   = len(df_real)
-        wins    = (df_real["Win/Loss/BE"] == "Win").sum()
-        losses  = (df_real["Win/Loss/BE"] == "Loss").sum()
-        be_tr   = (df_real["Win/Loss/BE"] == "BE").sum()
-        win_rate= round(100 * wins / total, 2) if total else 0
+        wins    = (df_real["Win/Loss/BE"]=="Win").sum()
+        losses  = (df_real["Win/Loss/BE"]=="Loss").sum()
+        be_tr   = (df_real["Win/Loss/BE"]=="BE").sum()
+        win_rate= round(100*wins/total,2) if total else 0
 
-        gross_p = df_real[df_real["USD"] > 0]["USD"].sum()
-        gross_l = df_real[df_real["USD"] < 0]["USD"].sum()
+        gross_p = df_real[df_real["USD"]>0]["USD"].sum()
+        gross_l = df_real[df_real["USD"]<0]["USD"].sum()
         net_p   = df_real["USD"].sum()
         commissions_sum = df_real["Commission"].sum()
 
-        prof_factor = round(abs(gross_p / gross_l), 2) if gross_l else 0
-        payoff = (round(df_real[df_real["USD"] > 0]["USD"].mean() /
-                        abs(df_real[df_real["USD"] < 0]["USD"].mean()), 2)
+        prof_factor = round(abs(gross_p/gross_l),2) if gross_l else 0
+        payoff = (round(df_real[df_real["USD"]>0]["USD"].mean() /
+                        abs(df_real[df_real["USD"]<0]["USD"].mean()),2)
                   if losses else 0)
 
         # ----------- equity y objetivos -----------
         current_eq = initial_cap + net_p
-        pct_change = 100 * (current_eq - initial_cap) / initial_cap
+        pct_change = 100*(current_eq-initial_cap)/initial_cap
 
-        dd_limit   = initial_cap * 0.90
-        dist_dd    = current_eq - dd_limit
-        trades_to_burn = math.ceil(abs(dist_dd) / (initial_cap * 0.0025))
+        dd_limit   = initial_cap*0.90
+        dist_dd    = current_eq-dd_limit
+        trades_to_burn = math.ceil(abs(dist_dd)/(initial_cap*0.0025))
 
-        f1_target  = initial_cap * 1.08
-        f2_target  = initial_cap * 1.13
-        dist_f1    = f1_target - current_eq
-        dist_f2    = f2_target - current_eq
-        f1_done    = dist_f1 <= 0
+        f1_target  = initial_cap*1.08
+        f2_target  = initial_cap*1.13
+        dist_f1    = f1_target-current_eq
+        dist_f2    = f2_target-current_eq
+        f1_done    = dist_f1<=0
 
-        risk_amt   = initial_cap * 0.0025
-        r_total    = net_p / risk_amt
-        r_f1       = max(dist_f1, 0) / risk_amt
-        r_f2       = max(dist_f2, 0) / risk_amt
+        risk_amt   = initial_cap*0.0025
+        r_total    = net_p/risk_amt
+        r_f1       = max(dist_f1,0)/risk_amt
+        r_f2       = max(dist_f2,0)/risk_amt
 
-        pct_f1 = 100 * max(dist_f1, 0) / initial_cap
-        pct_f2 = 100 * max(dist_f2, 0) / initial_cap
+        pct_f1 = 100*max(dist_f1,0)/initial_cap
+        pct_f2 = 100*max(dist_f2,0)/initial_cap
 
-        t13_f1 = max(0, int(np.ceil(r_f1 / 3)))
-        t13_f2 = max(0, int(np.ceil(r_f2 / 3)))
-        t14_f1 = max(0, int(np.ceil(r_f1 / 4)))
-        t14_f2 = max(0, int(np.ceil(r_f2 / 4)))
-        t15_f1 = max(0, int(np.ceil(r_f1 / 5)))
-        t15_f2 = max(0, int(np.ceil(r_f2 / 5)))
+        t13_f1 = max(0,int(np.ceil(r_f1/3)));  t13_f2 = max(0,int(np.ceil(r_f2/3)))
+        t14_f1 = max(0,int(np.ceil(r_f1/4)));  t14_f2 = max(0,int(np.ceil(r_f2/4)))
+        t15_f1 = max(0,int(np.ceil(r_f1/5)));  t15_f2 = max(0,int(np.ceil(r_f2/5)))
 
         fmt = lambda v: f"{v:,.2f}"
 
-        # ---------- PRIMERA fila ----------
+        # ---------- 1ª fila ----------
         k = st.columns(7)
         k[0].metric("Total Trades", total)
         k[1].metric("Win Rate", f"{win_rate:.2f} %")
@@ -321,29 +293,26 @@ with st.expander("📊 Métricas / KPIs", expanded=False):
         k[5].metric("Gross Profit", fmt(gross_p))
         k[6].metric("Gross Loss", fmt(gross_l))
 
-        # ---------- SEGUNDA fila ----------
+        # ---------- 2ª fila ----------
         k = st.columns(7)
         k[0].metric("Comisiones", fmt(commissions_sum))
         k[1].metric("Equity", fmt(current_eq), f"{pct_change:.2f} %")
         k[2].metric("Dist. DD −10 %", fmt(dist_dd), f"{trades_to_burn} trades")
 
-
-        # ----- Second-Trade Validation (Yes / total Loss) -----
-        conv_yes = ((df_real["Win/Loss/BE"] == "Loss") &
-                    (df_real["SecondTradeValid?"] == "Yes")).sum()
+        # ----- Loss convertibles (Yes / total Loss) -----
+        conv_yes = ((df_real["Win/Loss/BE"]=="Loss") &
+                    (df_real["SecondTradeValid?"]=="Yes")).sum()
         conv_tot = losses
-        conv_pct = 100 * conv_yes / conv_tot if conv_tot else 0
-
-        k[3].metric("SecondTradeValid", f"{conv_yes} / {conv_tot}",
+        conv_pct = 100*conv_yes/conv_tot if conv_tot else 0
+        k[3].metric("SecondTradeValid", f"{conv_yes}/{conv_tot}",
                     f"{conv_pct:.1f} %",
-                    delta_color="inverse" if conv_pct < 50 else "normal")
+                    delta_color="normal" if conv_pct>=50 else "inverse")
 
         k[4].metric("R acumuladas", f"{r_total:.2f}")
         k[5].metric("BE count", be_tr)
-        k[6].metric("Win/Loss", f"{wins} / {losses}")
+        k[6].metric("Win / Loss", f"{wins} / {losses}")
 
-
-        # ---------- TERCERA fila ----------
+        # ---------- 3ª fila ----------
         k = st.columns(7)
         k[0].metric("Fase 1 +8 %", "✅" if f1_done else fmt(dist_f1),
                     None if f1_done else f"{r_f1:.1f} R | {pct_f1:.2f}%")
@@ -355,20 +324,14 @@ with st.expander("📊 Métricas / KPIs", expanded=False):
         k[5].metric("Trades 1:4/5 F2", f"{t14_f2}/{t15_f2}")
         k[6].write(" ")
 
-        # ---------- Distribución Win/Loss/BE ----------
-        st.plotly_chart(
-            px.pie(names=["Win","Loss","BE"],
-                   values=[wins, losses, be_tr],
-                   title="Distribución Win / Loss / BE"),
-            use_container_width=True)
-
-        # ---------- Curva de equity ----------
+        # ---------- gráficos ----------
+        st.plotly_chart(px.pie(names=["Win","Loss","BE"],
+                               values=[wins,losses,be_tr]), use_container_width=True)
         df_sorted = df_real.sort_values("Datetime")
         df_sorted["Equity"] = initial_cap + df_sorted["USD"].cumsum()
-        st.plotly_chart(
-            px.line(df_sorted, x="Datetime", y="Equity",
-                    title="Evolución de Equity"),
-            use_container_width=True)
+        st.plotly_chart(px.line(df_sorted, x="Datetime", y="Equity",
+                                title="Equity curve"), use_container_width=True)
+
 # ======================================================
 # 3 · Balance Adjustment (fantasma)
 # ======================================================
