@@ -63,7 +63,7 @@ def update_row(i: int, d: dict):
 df = get_all()
 st.title("Quantitative Journal · Registro & Métricas")
 
-# ======================================================
+# ======================================================# ======================================================
 # 0 · 📅 Daily Impressions  (antes del Registrador de trades)
 # ======================================================
 with st.expander("📅  Daily Impressions (click en un día para editar)", expanded=False):
@@ -73,82 +73,84 @@ with st.expander("📅  Daily Impressions (click en un día para editar)", expan
     try:
         ws_imp = ws.spreadsheet.worksheet(IMP_SHEET)
     except gspread.exceptions.WorksheetNotFound:
-        # crea pestaña si no existe
         ws_imp = ws.spreadsheet.add_worksheet(title=IMP_SHEET, rows=1000, cols=20)
         ws_imp.update("A1:D1", [["Fecha","Impression","Reflection","ImageURLs"]])
 
     imp_df = pd.DataFrame(ws_imp.get_all_records())
-    if not imp_df.empty:
+
+    # ⭐️  importante: crea columnas vacías si la pestaña está recién creada
+    if imp_df.empty:
+        imp_df = pd.DataFrame(columns=["Fecha","Impression","Reflection","ImageURLs"])
+    else:
         imp_df["Fecha"] = pd.to_datetime(imp_df["Fecha"]).dt.date
 
-    # ---------- calendario simple ----------
-    today      = datetime.today().date()
-    month_ref  = st.session_state.get("imp_month", today.replace(day=1))
+    # ---------- calendario ----------
+    today     = datetime.today().date()
+    month_ref = st.session_state.get("imp_month", today.replace(day=1))
 
     col_prev, col_title, col_next = st.columns([1,3,1])
     if col_prev.button("◀️", key="imp_prev"):
         month_ref = (month_ref - timedelta(days=1)).replace(day=1)
     if col_next.button("▶️", key="imp_next"):
-        next_month = month_ref.replace(day=28) + timedelta(days=4)
-        month_ref = next_month.replace(day=1)
+        nxt = month_ref.replace(day=28) + timedelta(days=4)
+        month_ref = nxt.replace(day=1)
     col_title.markdown(f"### {month_ref.strftime('%B %Y')}")
     st.session_state["imp_month"] = month_ref
 
-    # Genera matriz (lunes-domingo)
-    first_wd = (month_ref.weekday() + 1) % 7        # lunes=0 … domingo=6
-    days_in_month = (month_ref.replace(month=month_ref.month%12+1, day=1) - timedelta(days=1)).day
+    first_wd = (month_ref.weekday() + 1) % 7
+    days_in_month = (month_ref.replace(month=month_ref.month%12+1, day=1) -
+                     timedelta(days=1)).day
     grid = ["" for _ in range(first_wd)] + list(range(1, days_in_month+1))
     rows = (len(grid)+6)//7
     grid += [""]*(rows*7-len(grid))
 
     for r in range(rows):
         cols = st.columns(7)
-        for c in range(7):
-            d = grid[r*7+c]
+        for c, d in enumerate(grid[r*7:(r+1)*7]):
             if d == "": 
-                cols[c].write(" ")           # celda vacía
+                cols[c].write(" ")
                 continue
             date_val = month_ref.replace(day=d)
-            has_imp  = not imp_df[imp_df["Fecha"]==date_val].empty
+            has_imp  = not imp_df[imp_df["Fecha"] == date_val].empty
             style = "✅" if has_imp else "➕"
             if cols[c].button(f"{d} {style}", key=f"imp_day_{date_val}"):
                 st.session_state["imp_sel"] = date_val
 
-    # ---------- editor (modal o fallback) ----------
+    # ---------- editor ----------
     if "imp_sel" in st.session_state:
         day_sel = st.session_state["imp_sel"]
-        row = imp_df[imp_df["Fecha"]==day_sel].iloc[0] if not imp_df[imp_df["Fecha"]==day_sel].empty else {}
+        row = imp_df[imp_df["Fecha"] == day_sel].iloc[0] \
+              if not imp_df[imp_df["Fecha"] == day_sel].empty else {}
 
-        # ¿tenemos modal?
         use_modal = hasattr(st, "modal")
-        ctx = st.modal(f"Impression – {day_sel}") if use_modal else st.expander(f"Impression – {day_sel}", expanded=True)
+        ctx = st.modal(f"Impression – {day_sel}") \
+              if use_modal else st.expander(f"Impression – {day_sel}", expanded=True)
+
         with ctx:
             with st.form(f"imp_form_{day_sel}"):
-                imp_txt = st.text_area("✏️ Primera impresión", row.get("Impression",""))
-                refl_txt= st.text_area("🔄 Reflexión / análisis posterior", row.get("Reflection",""))
-                img_str = st.text_area("🖼️ URLs imgs (una por línea)", row.get("ImageURLs",""))
+                imp_txt  = st.text_area("✏️ Primera impresión",   row.get("Impression",""))
+                refl_txt = st.text_area("🔄 Reflexión posterior", row.get("Reflection",""))
+                img_str  = st.text_area("🖼️ URLs imágenes (1 por línea)", row.get("ImageURLs",""))
                 submitted = st.form_submit_button("💾 Guardar")
 
             if submitted:
-                # prepara registro
                 new_row = {
                     "Fecha": str(day_sel),
                     "Impression": imp_txt,
                     "Reflection": refl_txt,
                     "ImageURLs": img_str.strip()
                 }
-                if row.empty:
-                    # añade
-                    ws_imp.append_row([new_row[c] for c in ["Fecha","Impression","Reflection","ImageURLs"]])
+                if row == {}:
+                    ws_imp.append_row([new_row[c] for c in ["Fecha","Impression",
+                                                             "Reflection","ImageURLs"]])
                 else:
-                    # actualiza
-                    idx = imp_df[imp_df["Fecha"]==day_sel].index[0] + 2   # +header +1-based
-                    ws_imp.update(f"A{idx}:D{idx}", [[new_row["Fecha"], new_row["Impression"],
-                                                      new_row["Reflection"], new_row["ImageURLs"]]])
+                    idx = imp_df[imp_df["Fecha"] == day_sel].index[0] + 2
+                    ws_imp.update(f"A{idx}:D{idx}", [[new_row["Fecha"],
+                                                      new_row["Impression"],
+                                                      new_row["Reflection"],
+                                                      new_row["ImageURLs"]]])
                 st.success("Guardado ✔️")
                 st.experimental_rerun()
-
-
 
 # ======================================================
 # 1 · Registrar trade
@@ -292,14 +294,17 @@ with st.expander("📊 Métricas / KPIs", expanded=False):
         k[1].metric("Equity", fmt(current_eq), f"{pct_change:.2f} %")
         k[2].metric("Dist. DD −10 %", fmt(dist_dd), f"{trades_to_burn} trades")
 
-      # ----- Loss convertibles (YES / total Loss) -----
-        conv_yes = ((df_real["Win/Loss/BE"]=="Loss") &
-            (df_real["SecondTradeValid?"]=="Yes")).sum()
-        conv_tot = (df_real["Win/Loss/BE"]=="Loss").sum()
-        conv_pct = 100*conv_yes/conv_tot if conv_tot else 0
-        k[3].metric("SecondTradeValid", f"{conv_yes}/{conv_tot}",
-            f"{conv_pct:.1f}%",
-            delta_color="normal" if conv_pct < 50 else "inverse")
+
+        # ----- Second-Trade Validation (Yes / total Loss) -----
+        conv_yes = ((df_real["Win/Loss/BE"] == "Loss") &
+                    (df_real["SecondTradeValid?"] == "Yes")).sum()
+        conv_tot = losses
+        conv_pct = 100 * conv_yes / conv_tot if conv_tot else 0
+
+        k[3].metric("SecondTradeValid", f"{conv_yes} / {conv_tot}",
+                    f"{conv_pct:.1f} %",
+                    delta_color="inverse" if conv_pct < 50 else "normal")
+
         k[4].metric("R acumuladas", f"{r_total:.2f}")
         k[5].metric("BE count", be_tr)
         k[6].metric("Win/Loss", f"{wins} / {losses}")
