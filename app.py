@@ -64,6 +64,112 @@ df = get_all()
 st.title("Quantitative Journal · Registro & Métricas")
 
 # ======================================================
+# 0 · 📅 Daily Impressions  (ANALYSIS PRE-MARKET)
+#     • Usa pestaña "daily_impressions" en el mismo Sheets
+#     • Hasta 5 imágenes URL por día, separadas por coma
+# ======================================================
+with st.expander("📅 Daily Impressions", expanded=False):
+    # ---------- cargar / crear hoja ----------
+    try:
+        ws_imp = ws.spreadsheet.worksheet("daily_impressions")
+    except gspread.WorksheetNotFound:
+        ws_imp = ws.spreadsheet.add_worksheet("daily_impressions", rows=2000, cols=10)
+        ws_imp.append_row(["Date","Impression","Reflection",
+                           "IsAccurate","ImageURLs","Tags"])
+
+    df_imp = pd.DataFrame(ws_imp.get_all_records())
+    if not df_imp.empty:
+        df_imp["Date"] = pd.to_datetime(df_imp["Date"]).dt.date
+    else:
+        df_imp = pd.DataFrame(columns=["Date","Impression","Reflection",
+                                       "IsAccurate","ImageURLs","Tags"])
+
+    # ---------- navegación mensual ----------
+    today = datetime.today()
+    sel_year  = st.number_input("Año",  2020, 2100, today.year, 1, key="imp_year")
+    sel_month = st.number_input("Mes",     1,   12, today.month, 1, key="imp_mon")
+    first_day = datetime(sel_year, sel_month, 1).date()
+    last_day  = (datetime(sel_year, sel_month, 28) + timedelta(days=4)).date().replace(day=1) - timedelta(days=1)
+
+    # ---------- dibujar calendario ----------
+    weekdays = ["Lu","Ma","Mi","Ju","Vi","Sa","Do"]
+    st.markdown("#### "
+        f"{first_day.strftime('%B').capitalize()} {sel_year}")
+
+    cal = pd.date_range(first_day, last_day, freq="D")
+    cal_df = pd.DataFrame({"Date": cal})
+    cal_df["Dow"] = cal_df["Date"].dt.weekday              # 0=Lunes
+    cal_df["Week"] = (cal_df.index + cal_df.iloc[0]["Dow"]) // 7
+
+    grid = st.columns(7)
+    for d, w in enumerate(weekdays):
+        grid[d].markdown(f"**{w}**")
+
+    rows = cal_df["Week"].max() + 1
+    for r in range(rows):
+        cols = st.columns(7)
+        for d in range(7):
+            cell = cal_df[(cal_df["Week"] == r) & (cal_df["Dow"] == d)]
+            if cell.empty: cols[d].write(" ")
+            else:
+                day = cell.iloc[0]["Date"].date()
+                rec  = df_imp[df_imp["Date"] == day]
+                bg   = "#f1f1f1" if rec.empty else (
+                       "#d4f4d2" if rec.iloc[0]["IsAccurate"]=="Yes" else "#ffd6d6")
+                emoji= "" if rec.empty else ("✔️" if rec.iloc[0]["IsAccurate"]=="Yes" else "❌")
+                if cols[d].button(f"{day.day} {emoji}",
+                                  key=f"day_{day}", help=str(day),
+                                  use_container_width=True):
+                    st.session_state["imp_modal_day"] = str(day)
+                cols[d].markdown(
+                    f"<div style='height:4px;background:{bg};border-radius:4px;'></div>",
+                    unsafe_allow_html=True)
+
+    # ---------- modal edición ----------
+    modal_key = st.session_state.get("imp_modal_day")
+    if modal_key:
+        day_sel = datetime.strptime(modal_key, "%Y-%m-%d").date()
+        rec = df_imp[df_imp["Date"] == day_sel]
+        impression   = rec.iloc[0]["Impression"]   if not rec.empty else ""
+        reflection   = rec.iloc[0]["Reflection"]   if not rec.empty else ""
+        is_accurate  = rec.iloc[0]["IsAccurate"]   if not rec.empty else "N/A"
+        image_urls   = rec.iloc[0]["ImageURLs"]    if not rec.empty else ""
+        tags         = rec.iloc[0]["Tags"]         if not rec.empty else ""
+
+        with st.modal(f"Impression – {day_sel}"):
+            st.write("### Primera impresión")
+            imp_txt  = st.text_area("Impression", value=impression, height=80)
+            refl_txt = st.text_area("Reflection (fin de día)",
+                                    value=reflection, height=80)
+            acc_sel  = st.selectbox("¿Fue acertada?",
+                                    ["N/A","Yes","No"],
+                                    index=["N/A","Yes","No"].index(is_accurate))
+            img_txt  = st.text_area("Image URLs (máx 5, coma separadas)",
+                                    value=image_urls, height=60)
+            tags_txt = st.text_input("Tags (coma separadas)", value=tags)
+
+            if img_txt:
+                for u in [u.strip() for u in img_txt.split(",")[:5]]:
+                    st.image(u, width=100)
+
+            if st.button("💾 Guardar"):
+                new_row = {"Date":     str(day_sel),
+                           "Impression": imp_txt,
+                           "Reflection": refl_txt,
+                           "IsAccurate": acc_sel,
+                           "ImageURLs":  img_txt,
+                           "Tags":       tags_txt}
+                if rec.empty:
+                    ws_imp.append_row(list(new_row.values()))
+                else:
+                    i = rec.index[0] + 2           # fila real (1-based, +header)
+                    ws_imp.update(f"A{i}:F{i}", [list(new_row.values())])
+                st.success("Guardado.")
+                st.session_state.pop("imp_modal_day")
+                st.experimental_rerun()
+
+
+# ======================================================
 # 1 · Registrar trade
 # ======================================================
 with st.expander("➕ Registrar trade", expanded=False):
@@ -205,16 +311,18 @@ with st.expander("📊 Métricas / KPIs", expanded=False):
         k[1].metric("Equity", fmt(current_eq), f"{pct_change:.2f} %")
         k[2].metric("Dist. DD −10 %", fmt(dist_dd), f"{trades_to_burn} trades")
 
-        # ----- Loss convertibles (YES / total Loss) -----
-        conv_yes = ((df_real["Win/Loss/BE"] == "Loss") &
-                    (df_real["SecondTradeValid?"] == "Yes")).sum()
-        conv_pct = 100 * conv_yes / losses if losses else 0
-        k[3].metric("SecondTradeValidation", f"{conv_yes} / {losses}",
-                    f"{conv_pct:.1f}%")
-
+      # ----- Loss convertibles (YES / total Loss) -----
+        conv_yes = ((df_real["Win/Loss/BE"]=="Loss") &
+            (df_real["SecondTradeValid?"]=="Yes")).sum()
+        conv_tot = (df_real["Win/Loss/BE"]=="Loss").sum()
+        conv_pct = 100*conv_yes/conv_tot if conv_tot else 0
+        k[3].metric("SecondTradeValid", f"{conv_yes}/{conv_tot}",
+            f"{conv_pct:.1f}%",
+            delta_color="normal" if conv_pct < 50 else "inverse")
         k[4].metric("R acumuladas", f"{r_total:.2f}")
         k[5].metric("BE count", be_tr)
         k[6].metric("Win/Loss", f"{wins} / {losses}")
+
 
         # ---------- TERCERA fila ----------
         k = st.columns(7)
