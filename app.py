@@ -79,7 +79,7 @@ st.title("Quantitative Journal · Registro & Métricas")
 with st.expander("📅 Daily Impressions", expanded=False):
 
     IMP_HEADER = ["Fecha", "Impression", "Reflection",
-                  "Good?", "ImageURLs"]          # cabecera fija
+                  "Good?", "ImageURLs"]              # cabecera fija
 
     # ---------- obtener / crear hoja ----------
     try:
@@ -90,7 +90,7 @@ with st.expander("📅 Daily Impressions", expanded=False):
         ws_imp = ws.add_worksheet("daily_impressions", rows=1000, cols=10)
         ws_imp.append_row(IMP_HEADER)
 
-    # --- fuerza cabecera correcta y maneja errores transitorios ---
+    # ---------- fuerza cabecera correcta (con retry) ----------
     try:
         if ws_imp.row_values(1) != IMP_HEADER:
             ws_imp.update("A1", [IMP_HEADER])
@@ -99,12 +99,87 @@ with st.expander("📅 Daily Impressions", expanded=False):
         if ws_imp.row_values(1) != IMP_HEADER:
             ws_imp.update("A1", [IMP_HEADER])
 
-    # ---------- DataFrame siempre con columnas ----------
-    imp_df = pd.DataFrame(ws_imp.get_all_records())
-    if imp_df.empty:
-        imp_df = pd.DataFrame(columns=IMP_HEADER)
-    else:
+    # ---------- DataFrame (si no hay filas, crea columnas vacías) ----------
+    imp_records = ws_imp.get_all_records()
+    imp_df = (pd.DataFrame(imp_records)
+              if imp_records else pd.DataFrame(columns=IMP_HEADER))
+    if not imp_df.empty:
         imp_df["Fecha"] = pd.to_datetime(imp_df["Fecha"]).dt.strftime("%Y-%m-%d")
+
+    # ---------- mes actual ----------
+    today = datetime.today()
+    y = st.session_state.get("imp_y", today.year)
+    m = st.session_state.get("imp_m", today.month)
+
+    def _shift(delta):
+        ym = datetime(y, m, 1) + pd.DateOffset(months=delta)
+        st.session_state["imp_y"], st.session_state["imp_m"] = ym.year, ym.month
+        st.experimental_rerun()
+
+    nav1, nav2, nav3, nav4, nav5 = st.columns([1,1,3,1,1])
+    if nav1.button("⏮"): _shift(-12)
+    if nav2.button("◀"):  _shift(-1)
+    nav3.markdown(f"<h4 style='text-align:center'>{datetime(y,m,1):%B %Y}</h4>",
+                  unsafe_allow_html=True)
+    if nav4.button("▶"):  _shift(+1)
+    if nav5.button("⏭"): _shift(+12)
+
+    # ---------- calendario ----------
+    m_ini = datetime(y, m, 1)
+    m_end = (m_ini + pd.offsets.MonthEnd()).to_pydatetime()
+    cols = st.columns(7)
+    offset = m_ini.weekday()                           # lunes = 0
+    for _ in range(offset): cols[_].write(" ")
+
+    for i, d in enumerate(pd.date_range(m_ini, m_end)):
+        if i and (offset+i) % 7 == 0:
+            cols = st.columns(7)
+        col = cols[(offset+i) % 7]
+
+        d_str = d.strftime("%Y-%m-%d")
+        rec   = imp_df[imp_df["Fecha"] == d_str]
+        has_i = not rec.empty
+
+        if col.button(str(d.day), key=f"btn_{d_str}"):
+            st.session_state["imp_sel"] = d_str
+
+        if has_i and rec.iloc[0]["ImageURLs"]:
+            thumb = rec.iloc[0]["ImageURLs"].splitlines()[0].strip()
+            try:
+                col.image(thumb, width=50)
+            except st.runtime.media_file_storage.MediaFileStorageError:
+                col.write("🖼️")
+        else:
+            col.write(" ")
+
+    # ---------- formulario ----------
+    sel = st.session_state.get("imp_sel")
+    if sel:
+        rec = imp_df[imp_df["Fecha"] == sel]
+        getv = lambda k: (rec.iloc[0][k] if (k in rec.columns and not rec.empty) else "")
+
+        st.markdown("---")
+        st.subheader(f"Impression – {sel}")
+
+        f_imp   = st.text_area("✏️ Primera impresión", getv("Impression"))
+        reflect = st.text_area("🔍 Reflexión / Análisis", getv("Reflection"))
+        good    = st.selectbox("¿Acertada?", ["N/A","Yes","No"],
+                               index=["N/A","Yes","No"].index(getv("Good?") or "N/A"))
+        urls    = st.text_area("URLs imágenes (una por línea)", getv("ImageURLs"))
+
+        if st.button("💾 Guardar / Actualizar"):
+            row = {"Fecha": sel, "Impression": f_imp,
+                   "Reflection": reflect, "Good?": good,
+                   "ImageURLs": urls}
+
+            if rec.empty:
+                ws_imp.append_row([row[c] for c in IMP_HEADER])
+            else:
+                r = rec.index[0] + 2
+                ws_imp.update(f"A{r}:E{r}", [[row[c] for c in IMP_HEADER]])
+            st.success("Guardado ✔️")
+            st.experimental_rerun()
+
 
 
 # ======================================================
