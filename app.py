@@ -417,7 +417,7 @@ with st.expander("⚠️ Loss sin Resolver", expanded=False):
 with st.expander("📜 Historial", expanded=False):
     st.dataframe(df, use_container_width=True)
 
-# ======================================================# ======================================================
+# ======================================================#
 # 5 · Editar / Borrar
 # ======================================================
 with st.expander("✏️ Editar / Borrar", expanded=False):
@@ -482,88 +482,66 @@ with st.expander("✏️ Editar / Borrar", expanded=False):
                 st.success("Guardado."); df = get_all()
 
 # ======================================================
-# 6 · Auditoría de integridad (DumpTrades)
+# SECTION TEMPORARILY DISABLED - Auditoría DumpTrades MT5
 # ======================================================
-with st.expander("🔍 Auditoría DumpTrades MT5", expanded=False):
-    raw=st.text_area("Pega aquí el DumpTrades",height=180)
-    if st.button("Analizar Dump"):
-        rows=[]
-        for ln in raw.strip().splitlines():
-            if "DumpTrades" in ln:
-                ln=re.split(r"\)\s+",ln,1)[-1]
-            parts=ln.split(",")
-            if len(parts)==7: rows.append(parts)
-        if not rows: st.error("No CSV."); st.stop()
-        df_log=pd.DataFrame(rows,columns=
-            ["Fecha","Hora","Ticket","Symbol","Volume","TypeCode","Profit"])
-        df_log["Fecha"]=pd.to_datetime(df_log["Fecha"]).dt.strftime("%Y-%m-%d")
-        df_log["Hora"]=(pd.to_datetime(df_log["Hora"])-pd.Timedelta(hours=1)).dt.strftime("%H:%M:%S")
-        df_log["Volume"]=df_log["Volume"].astype(float)
-        df_log["Profit"]=df_log["Profit"].astype(float)
-        if "Ticket" not in df.columns: df["Ticket"]=""
-        merged=df_log.merge(df,on="Ticket",how="left",indicator=True,
-                            suffixes=("_log","_sh"))
-        faltan=merged[merged["_merge"]=="left_only"].copy()
-        diff=merged[(merged["_merge"]=="both") &
-                    (abs(merged["Profit"]-merged["USD"])>0.01)].copy()
-        st.write(f"Trades log: {len(df_log)}")
-        st.write(f"Faltan en hoja: {len(faltan)}")
-        st.write(f"Profit distinto: {len(diff)}")
-        if not faltan.empty: st.dataframe(faltan,height=200)
-        if not diff.empty:   st.dataframe(diff,height=200)
-        if st.button("⚠️ Sincronizar hoja"):
-            added=repl=fixed=0
-            def sym(df_): return "Symbol_log" if "Symbol_log" in df_.columns else "Symbol"
-            for _,r in faltan.iterrows():
-                vol=float(r["Volume"]); comm=true_commission(vol)
-                usd=r["Profit"]; gross=usd+comm
-                res="Win" if usd>0 else ("BE" if abs(usd+comm)<0.01 else "Loss")
-                match=df[(df["Ticket"]=="") &
-                         (df["Fecha"]==r["Fecha"]) &
-                         (df["Symbol"]==r[sym(faltan)]) &
-                         (abs(df["Volume"]-vol)<0.001)]
-                if not match.empty:
-                    i=match.index[0]; repl+=1
-                    df.loc[i,["Ticket","Volume","Gross_USD","Commission","USD","R","Win/Loss/BE"]]=[
-                        r["Ticket"],vol,gross,comm,usd,calc_r(usd),res]
-                else:
-                    new=dict(zip(HEADER,[r["Fecha"],r["Hora"],r[sym(faltan)],
-                        "Long" if int(r["TypeCode"])%2 else "Short",
-                        vol,r["Ticket"],res,gross,comm,usd,calc_r(usd),
-                        "","","","","","No","","","",""]))
-                    ws.append_row([new[c] for c in HEADER]); added+=1
-            for _,r in diff.iterrows():
-                i=df[df["Ticket"]==r["Ticket"]].index
-                if i.size:
-                    i=i[0]; fixed+=1
-                    vol=float(r["Volume"]); comm=true_commission(vol)
-                    usd=r["Profit"]; gross=usd+comm
-                    df.loc[i,["Volume","Gross_USD","Commission","USD","R","Win/Loss/BE"]]=[
-                        vol,gross,comm,usd,calc_r(usd),
-                        ("Win" if usd>0 else ("BE" if abs(usd)<0.01 else "Loss"))]
-            if added or repl or fixed:
-                ws.clear(); ws.append_row(HEADER)
-                ws.append_rows(df[HEADER].values.tolist())
-            st.success(f"Nuevos {added} | Reemplazados {repl} | Corregidos {fixed} — F5.")
-# ======================================================
-# SECTION TEMPORARILY DISABLED
-# ======================================================
-# with st.expander("🛠️ Reparar signos (Loss positivos)", expanded=False):
-#     # detecta filas mal firmadas
-#     bad = df[(df["Win/Loss/BE"]=="Loss") & (pd.to_numeric(df["Gross_USD"], errors="coerce")>0)]
-#     st.write(f"Filas con signo incorrecto: **{len(bad)}**")
-#     if not bad.empty:
-#         st.dataframe(bad[["Fecha","Hora","Symbol","Gross_USD","Commission","USD"]])
-#     if st.button("⚙️ Corregir todos") and not bad.empty:
-#         count = 0
-#         for i, row in bad.iterrows():
-#             gross = -abs(float(row["Gross_USD"]))         # cambia a negativo
-#             comm  = float(row["Commission"])
-#             usd   = gross - comm
-#             row_dict = row.to_dict()
-#             row_dict.update({"Gross_USD": gross,
-#                              "USD": usd,
-#                              "R": calc_r(usd)})
-#             update_row(i, row_dict)
-#             count += 1
-#         st.success(f"{count} fila(s) corregidas ✔️ — pulsa Rerun.")
+# with st.expander("🔍 Auditoría DumpTrades MT5", expanded=False):
+#     raw=st.text_area("Pega aquí el DumpTrades",height=180)
+#     if st.button("Analizar Dump"):
+#         rows=[]
+#         for ln in raw.strip().splitlines():
+#             if "DumpTrades" in ln:
+#                 ln=re.split(r"\)\s+",ln,1)[-1]
+#             parts=ln.split(",")
+#             if len(parts)==7: rows.append(parts)
+#         if not rows: st.error("No CSV."); st.stop()
+#         df_log=pd.DataFrame(rows,columns=
+#             ["Fecha","Hora","Ticket","Symbol","Volume","TypeCode","Profit"])
+#         df_log["Fecha"]=pd.to_datetime(df_log["Fecha"]).dt.strftime("%Y-%m-%d")
+#         df_log["Hora"]=(pd.to_datetime(df_log["Hora"])-pd.Timedelta(hours=1)).dt.strftime("%H:%M:%S")
+#         df_log["Volume"]=df_log["Volume"].astype(float)
+#         df_log["Profit"]=df_log["Profit"].astype(float)
+#         if "Ticket" not in df.columns: df["Ticket"]=""
+#         merged=df_log.merge(df,on="Ticket",how="left",indicator=True,
+#                             suffixes=("_log","_sh"))
+#         faltan=merged[merged["_merge"]=="left_only"].copy()
+#         diff=merged[(merged["_merge"]=="both") &
+#                     (abs(merged["Profit"]-merged["USD"])>0.01)].copy()
+#         st.write(f"Trades log: {len(df_log)}")
+#         st.write(f"Faltan en hoja: {len(faltan)}")
+#         st.write(f"Profit distinto: {len(diff)}")
+#         if not faltan.empty: st.dataframe(faltan,height=200)
+#         if not diff.empty:   st.dataframe(diff,height=200)
+#         if st.button("⚠️ Sincronizar hoja"):
+#             added=repl=fixed=0
+#             def sym(df_): return "Symbol_log" if "Symbol_log" in df_.columns else "Symbol"
+#             for _,r in faltan.iterrows():
+#                 vol=float(r["Volume"]); comm=true_commission(vol)
+#                 usd=r["Profit"]; gross=usd+comm
+#                 res="Win" if usd>0 else ("BE" if abs(usd+comm)<0.01 else "Loss")
+#                 match=df[(df["Ticket"]=="") &
+#                          (df["Fecha"]==r["Fecha"]) &
+#                          (df["Symbol"]==r[sym(faltan)]) &
+#                          (abs(df["Volume"]-vol)<0.001)]
+#                 if not match.empty:
+#                     i=match.index[0]; repl+=1
+#                     df.loc[i,["Ticket","Volume","Gross_USD","Commission","USD","R","Win/Loss/BE"]]=[
+#                         r["Ticket"],vol,gross,comm,usd,calc_r(usd),res]
+#                 else:
+#                     new=dict(zip(HEADER,[r["Fecha"],r["Hora"],r[sym(faltan)],
+#                         "Long" if int(r["TypeCode"])%2 else "Short",
+#                         vol,r["Ticket"],res,gross,comm,usd,calc_r(usd),
+#                         "","","","","","No","","","",""]))
+#                     ws.append_row([new[c] for c in HEADER]); added+=1
+#             for _,r in diff.iterrows():
+#                 i=df[df["Ticket"]==r["Ticket"]].index
+#                 if i.size:
+#                     i=i[0]; fixed+=1
+#                     vol=float(r["Volume"]); comm=true_commission(vol)
+#                     usd=r["Profit"]; gross=usd+comm
+#                     df.loc[i,["Volume","Gross_USD","Commission","USD","R","Win/Loss/BE"]]=[
+#                         vol,gross,comm,usd,calc_r(usd),
+#                         ("Win" if usd>0 else ("BE" if abs(usd)<0.01 else "Loss"))]
+#             if added or repl or fixed:
+#                 ws.clear(); ws.append_row(HEADER)
+#                 ws.append_rows(df[HEADER].values.tolist())
+#             st.success(f"Nuevos {added} | Reemplazados {repl} | Corregidos {fixed} — F5.")
