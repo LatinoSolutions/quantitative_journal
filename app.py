@@ -1,9 +1,10 @@
 # ------------------  app.py  ------------------
-import streamlit as st, pandas as pd, numpy as np, math, re, time   # ← time añadido
+import streamlit as st, pandas as pd, numpy as np, math, re, time, random
 import plotly.express as px, plotly.graph_objects as go
 from datetime import datetime, timedelta
 from google.oauth2.service_account import Credentials
 import gspread
+from gspread.exceptions import APIError
 
 # ---------- Conexión ----------
 st.set_page_config("Quantitative Journal – Ingreso / KPIs", layout="wide")
@@ -13,9 +14,28 @@ creds = Credentials.from_service_account_info(
     scopes=["https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"])
 
-ws = gspread.authorize(creds)\
-        .open_by_key("1D4AlYBD1EClp0gGe0qnxr8NeGMbpSvdOx8yHimQDmbE")\
-        .worksheet("sheet1")
+def with_retry(fn, *args, **kwargs):
+    """Ejecuta fn con reintento exponencial (máx 3)."""
+    for attempt in range(3):
+        try:
+            return fn(*args, **kwargs)
+        except APIError as e:
+            if attempt == 2:
+                raise
+            wait = 1.5 * (2 ** attempt) + random.uniform(0, 0.5)
+            time.sleep(wait)
+
+gc = gspread.authorize(creds)
+
+def open_ws(sheet_key:str, tab:str):
+    sh = with_retry(gc.open_by_key, sheet_key)
+    try:
+        return sh.worksheet(tab)
+    except gspread.exceptions.WorksheetNotFound:
+        ws_new = with_retry(sh.add_worksheet, tab, rows=1000, cols=20)
+        return ws_new
+
+ws = open_ws("1D4AlYBD1EClp0gGe0qnxr8NeGMbpSvdOx8yHimQDmbE", "sheet1")
 
 HEADER = [
     "Fecha","Hora","Symbol","Type","Volume","Ticket","Win/Loss/BE",
@@ -24,54 +44,44 @@ HEADER = [
     "LossTradeReviewURL","IdeaMissedURL","IsIdeaOnly","BEOutcome"
 ]
 
-# ---------- HEADERS hoja principal ----------
-try:
-    if ws.row_values(1) != HEADER:
-        ws.update("A1", [HEADER])
-except gspread.exceptions.APIError:
-    # error puntual de cuota / timeout → reintenta una vez
-    time.sleep(1.5)
-    if ws.row_values(1) != HEADER:
-        ws.update("A1", [HEADER])
-
+# -- fuerza cabecera --
+if with_retry(ws.row_values, 1) != HEADER:
+    with_retry(ws.update, "A1", [HEADER])
 
 # ---------- Helpers ----------
-import math
-
 initial_cap = 60000
 
 def true_commission(vol: float) -> float:
     return round(vol * 4.0, 2)
 
 def calc_r(net: float) -> float:
-    risk = initial_cap * 0.0025          # 0.25 %
+    risk = initial_cap * 0.0025
     return round(net / risk, 2) if risk else 0
 
 def get_all():
-    df = pd.DataFrame(ws.get_all_records())
+    data = with_retry(ws.get_all_records)
+    df = pd.DataFrame(data)
     if not df.empty:
-        df["Datetime"] = pd.to_datetime(
-            df["Fecha"] + " " + df["Hora"], errors="coerce")
+        df["Datetime"] = pd.to_datetime(df["Fecha"]+" "+df["Hora"],
+                                        errors="coerce")
     return df
 
-# --- NUEVO: util para convertir número → letra de columna ---
-def col_letter(n: int) -> str:
-    """1 -> A, 26 -> Z, 27 -> AA, …"""
-    s = ""
+def col_letter(n:int) -> str:
+    s=""
     while n:
-        n, r = divmod(n - 1, 26)
-        s = chr(65 + r) + s
+        n, r = divmod(n-1, 26)
+        s = chr(65+r)+s
     return s
 
-def update_row(i: int, d: dict):
-    """Actualiza fila i (0-based) con todas las columnas de HEADER."""
-    row  = i + 2                          # +1 por header, +1 índice 0-based
-    last = col_letter(len(HEADER))        # calcula la última letra
-    ws.update(f"A{row}:{last}{row}",
-              [[d.get(c, "") for c in HEADER]])
+def update_row(i:int, d:dict):
+    row  = i + 2
+    last = col_letter(len(HEADER))
+    vals = [[d.get(c,"") for c in HEADER]]
+    with_retry(ws.update, f"A{row}:{last}{row}", vals)
 
 df = get_all()
 st.title("Quantitative Journal · Registro & Métricas")
+
 
 # ======================================================
 # 📅 · Daily Impressions  (calendario + formulario)
