@@ -370,26 +370,6 @@ with st.expander("📊 Métricas / KPIs", expanded=False):
                                 title="Equity curve"), use_container_width=True)
 
 # ======================================================
-# 3 · Balance Adjustment (fantasma)
-# ======================================================
-with st.expander("🩹 Balance Adjustment", expanded=False):
-    current_net = round(df_real["USD"].sum(),2)
-    st.write(f"Net Profit sin ajustes: **{current_net:,.2f} USD**")
-    mt5_val = st.number_input("Net Profit según MT5",
-                              current_net, step=0.01, format="%.2f")
-    diff = round(mt5_val-current_net,2)
-    st.write(f"Diferencia: **{diff:+,.2f} USD**")
-    if st.button("➕ Crear ajuste") and diff!=0:
-        today=datetime.today().strftime("%Y-%m-%d")
-        now  =datetime.today().strftime("%H:%M:%S")
-        adj=dict(zip(HEADER,[
-            today,now,"ADJ","Adj",0.0,"","Adj", diff,0.0,diff,
-            calc_r(diff),"","","Adjustment","","","No","","","",""
-        ]))
-        ws.append_row([adj[c] for c in HEADER])
-        st.success("Ajuste añadido; F5 para ver métricas.")
-
-# ======================================================
 # X · ⚠️ Loss sin Resolver
 # ======================================================
 with st.expander("⚠️ Loss sin Resolver", expanded=False):
@@ -482,66 +462,21 @@ with st.expander("✏️ Editar / Borrar", expanded=False):
                 st.success("Guardado."); df = get_all()
 
 # ======================================================
-# SECTION TEMPORARILY DISABLED - Auditoría DumpTrades MT5
+# 3 · Balance Adjustment (fantasma)
 # ======================================================
-# with st.expander("🔍 Auditoría DumpTrades MT5", expanded=False):
-#     raw=st.text_area("Pega aquí el DumpTrades",height=180)
-#     if st.button("Analizar Dump"):
-#         rows=[]
-#         for ln in raw.strip().splitlines():
-#             if "DumpTrades" in ln:
-#                 ln=re.split(r"\)\s+",ln,1)[-1]
-#             parts=ln.split(",")
-#             if len(parts)==7: rows.append(parts)
-#         if not rows: st.error("No CSV."); st.stop()
-#         df_log=pd.DataFrame(rows,columns=
-#             ["Fecha","Hora","Ticket","Symbol","Volume","TypeCode","Profit"])
-#         df_log["Fecha"]=pd.to_datetime(df_log["Fecha"]).dt.strftime("%Y-%m-%d")
-#         df_log["Hora"]=(pd.to_datetime(df_log["Hora"])-pd.Timedelta(hours=1)).dt.strftime("%H:%M:%S")
-#         df_log["Volume"]=df_log["Volume"].astype(float)
-#         df_log["Profit"]=df_log["Profit"].astype(float)
-#         if "Ticket" not in df.columns: df["Ticket"]=""
-#         merged=df_log.merge(df,on="Ticket",how="left",indicator=True,
-#                             suffixes=("_log","_sh"))
-#         faltan=merged[merged["_merge"]=="left_only"].copy()
-#         diff=merged[(merged["_merge"]=="both") &
-#                     (abs(merged["Profit"]-merged["USD"])>0.01)].copy()
-#         st.write(f"Trades log: {len(df_log)}")
-#         st.write(f"Faltan en hoja: {len(faltan)}")
-#         st.write(f"Profit distinto: {len(diff)}")
-#         if not faltan.empty: st.dataframe(faltan,height=200)
-#         if not diff.empty:   st.dataframe(diff,height=200)
-#         if st.button("⚠️ Sincronizar hoja"):
-#             added=repl=fixed=0
-#             def sym(df_): return "Symbol_log" if "Symbol_log" in df_.columns else "Symbol"
-#             for _,r in faltan.iterrows():
-#                 vol=float(r["Volume"]); comm=true_commission(vol)
-#                 usd=r["Profit"]; gross=usd+comm
-#                 res="Win" if usd>0 else ("BE" if abs(usd+comm)<0.01 else "Loss")
-#                 match=df[(df["Ticket"]=="") &
-#                          (df["Fecha"]==r["Fecha"]) &
-#                          (df["Symbol"]==r[sym(faltan)]) &
-#                          (abs(df["Volume"]-vol)<0.001)]
-#                 if not match.empty:
-#                     i=match.index[0]; repl+=1
-#                     df.loc[i,["Ticket","Volume","Gross_USD","Commission","USD","R","Win/Loss/BE"]]=[
-#                         r["Ticket"],vol,gross,comm,usd,calc_r(usd),res]
-#                 else:
-#                     new=dict(zip(HEADER,[r["Fecha"],r["Hora"],r[sym(faltan)],
-#                         "Long" if int(r["TypeCode"])%2 else "Short",
-#                         vol,r["Ticket"],res,gross,comm,usd,calc_r(usd),
-#                         "","","","","","No","","","",""]))
-#                     ws.append_row([new[c] for c in HEADER]); added+=1
-#             for _,r in diff.iterrows():
-#                 i=df[df["Ticket"]==r["Ticket"]].index
-#                 if i.size:
-#                     i=i[0]; fixed+=1
-#                     vol=float(r["Volume"]); comm=true_commission(vol)
-#                     usd=r["Profit"]; gross=usd+comm
-#                     df.loc[i,["Volume","Gross_USD","Commission","USD","R","Win/Loss/BE"]]=[
-#                         vol,gross,comm,usd,calc_r(usd),
-#                         ("Win" if usd>0 else ("BE" if abs(usd)<0.01 else "Loss"))]
-#             if added or repl or fixed:
-#                 ws.clear(); ws.append_row(HEADER)
-#                 ws.append_rows(df[HEADER].values.tolist())
-#             st.success(f"Nuevos {added} | Reemplazados {repl} | Corregidos {fixed} — F5.")
+with st.expander("🩹 Balance Adjustment", expanded=False):
+    current_net = round(df_real["USD"].sum(),2)
+    st.write(f"Net Profit sin ajustes: **{current_net:,.2f} USD**")
+    mt5_val = st.number_input("Net Profit según MT5",
+                              current_net, step=0.01, format="%.2f")
+    diff = round(mt5_val-current_net,2)
+    st.write(f"Diferencia: **{diff:+,.2f} USD**")
+    if st.button("➕ Crear ajuste") and diff!=0:
+        today=datetime.today().strftime("%Y-%m-%d")
+        now  =datetime.today().strftime("%H:%M:%S")
+        adj=dict(zip(HEADER,[
+            today,now,"ADJ","Adj",0.0,"","Adj", diff,0.0,diff,
+            calc_r(diff),"","","Adjustment","","","No","","","",""
+        ]))
+        ws.append_row([adj[c] for c in HEADER])
+        st.success("Ajuste añadido; F5 para ver métricas.")
