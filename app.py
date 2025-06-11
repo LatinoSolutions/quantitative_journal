@@ -182,13 +182,18 @@ with st.expander("📅 Daily Impressions", expanded=False):
                    "Reflection": reflect, "Good?": good,
                    "ImageURLs": urls}
 
-            if rec.empty:
-                ws_imp.append_row([row[c] for c in IMP_HEADER])
-            else:
+        if rec.empty:
+                with_retry(ws_imp.append_row,
+                           [row[c] for c in IMP_HEADER])
+        else:
                 r = rec.index[0] + 2
-                ws_imp.update(f"A{r}:E{r}", [[row[c] for c in IMP_HEADER]])
-            st.success("Guardado ✔️")
-            st.experimental_rerun()
+                with_retry(ws_imp.update,
+                           f"A{r}:E{r}", [[row[c] for c in IMP_HEADER]])
+
+        st.success("Guardado ✔️")
+            # deselecciona día para evitar rerun en bucle
+        st.session_state.pop("imp_sel", None)
+
 
 
 
