@@ -546,26 +546,24 @@ with st.expander("🔍 Auditoría DumpTrades MT5", expanded=False):
                 ws.append_rows(df[HEADER].values.tolist())
             st.success(f"Nuevos {added} | Reemplazados {repl} | Corregidos {fixed} — F5.")
 # ======================================================
-# 🛠️ Reparar signos (Loss positivos) - COMMENTED OUT
+# SECTION TEMPORARILY DISABLED
 # ======================================================
-'''
-with st.expander("🛠️ Reparar signos (Loss positivos)", expanded=False):
-    # detecta filas mal firmadas
-    bad = df[(df["Win/Loss/BE"]=="Loss") & (pd.to_numeric(df["Gross_USD"], errors="coerce")>0)]
-    st.write(f"Filas con signo incorrecto: **{len(bad)}**")
-    if not bad.empty:
-        st.dataframe(bad[["Fecha","Hora","Symbol","Gross_USD","Commission","USD"]])
-    if st.button("⚙️ Corregir todos") and not bad.empty:
-        count = 0
-        for i, row in bad.iterrows():
-            gross = -abs(float(row["Gross_USD"]))         # cambia a negativo
-            comm  = float(row["Commission"])
-            usd   = gross - comm
-            row_dict = row.to_dict()
-            row_dict.update({"Gross_USD": gross,
-                             "USD": usd,
-                             "R": calc_r(usd)})
-            update_row(i, row_dict)
-            count += 1
-        st.success(f"{count} fila(s) corregidas ✔️ — pulsa Rerun.")
-'''
+# with st.expander("🛠️ Reparar signos (Loss positivos)", expanded=False):
+#     # detecta filas mal firmadas
+#     bad = df[(df["Win/Loss/BE"]=="Loss") & (pd.to_numeric(df["Gross_USD"], errors="coerce")>0)]
+#     st.write(f"Filas con signo incorrecto: **{len(bad)}**")
+#     if not bad.empty:
+#         st.dataframe(bad[["Fecha","Hora","Symbol","Gross_USD","Commission","USD"]])
+#     if st.button("⚙️ Corregir todos") and not bad.empty:
+#         count = 0
+#         for i, row in bad.iterrows():
+#             gross = -abs(float(row["Gross_USD"]))         # cambia a negativo
+#             comm  = float(row["Commission"])
+#             usd   = gross - comm
+#             row_dict = row.to_dict()
+#             row_dict.update({"Gross_USD": gross,
+#                              "USD": usd,
+#                              "R": calc_r(usd)})
+#             update_row(i, row_dict)
+#             count += 1
+#         st.success(f"{count} fila(s) corregidas ✔️ — pulsa Rerun.")
