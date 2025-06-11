@@ -1,5 +1,5 @@
 # ------------------  app.py  ------------------
-import streamlit as st, pandas as pd, numpy as np, math, re
+import streamlit as st, pandas as pd, numpy as np, math, re, time   # ← time añadido
 import plotly.express as px, plotly.graph_objects as go
 from datetime import datetime, timedelta
 from google.oauth2.service_account import Credentials
@@ -12,6 +12,7 @@ creds = Credentials.from_service_account_info(
     st.secrets["quantitative_journal"],
     scopes=["https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"])
+
 ws = gspread.authorize(creds)\
         .open_by_key("1D4AlYBD1EClp0gGe0qnxr8NeGMbpSvdOx8yHimQDmbE")\
         .worksheet("sheet1")
@@ -22,8 +23,17 @@ HEADER = [
     "Post-Analysis","EOD","ErrorCategory","Resolved","SecondTradeValid?",
     "LossTradeReviewURL","IdeaMissedURL","IsIdeaOnly","BEOutcome"
 ]
-if ws.row_values(1) != HEADER:
-    ws.update('A1', [HEADER])
+
+# ---------- HEADERS hoja principal ----------
+try:
+    if ws.row_values(1) != HEADER:
+        ws.update("A1", [HEADER])
+except gspread.exceptions.APIError:
+    # error puntual de cuota / timeout → reintenta una vez
+    time.sleep(1.5)
+    if ws.row_values(1) != HEADER:
+        ws.update("A1", [HEADER])
+
 
 # ---------- Helpers ----------
 import math
@@ -148,16 +158,20 @@ with st.expander("📅 Daily Impressions", expanded=False):
         urls    = st.text_area("URLs imágenes (una por línea)", v("ImageURLs"))
 
         if st.button("💾 Guardar / Actualizar"):
-            row = {"Fecha":sel,"FirstImpression":f_imp,
-                   "Reflection":reflect,"Good?":good,"ImageURLs":urls}
-            hdr = ws_imp.row_values(1)
+            row = {"Fecha": sel,
+                   "Impression": f_imp,        # ← nombre antiguo
+                   "Reflection": reflect,
+                   "Good?": good,
+                   "ImageURLs": urls}
+
+            header = ws_imp.row_values(1)      # ['Fecha','Impression',...]
             if rec.empty:
-                ws_imp.append_row([row[c] for c in hdr])
+                ws_imp.append_row([row[c] for c in header])
             else:
                 r = rec.index[0] + 2
-                ws_imp.update(f"A{r}:E{r}", [[row[c] for c in hdr]])
-            st.success("Guardado ✔️")
-            st.experimental_rerun()
+                ws_imp.update(f"A{r}:E{r}", [[row[c] for c in header]])
+            st.success("Guardado ✔️"); st.experimental_rerun()
+
 
 
 # ======================================================
