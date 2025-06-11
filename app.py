@@ -567,3 +567,7 @@ with st.expander("🛠️ Reparar signos (Loss positivos)", expanded=False):
             update_row(i, row_dict)
             count += 1
         st.success(f"{count} fila(s) corregidas ✔️ — pulsa Rerun.")
+
+# ====================================================== #
+#                   End of Main Sections                    #
+# ====================================================== #
