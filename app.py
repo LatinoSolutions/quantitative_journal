@@ -74,19 +74,30 @@ df = get_all()
 st.title("Quantitative Journal · Registro & Métricas")
 
 # ======================================================
-# 📅 · Daily Impressions (calendario + formulario)
+# 📅 · Daily Impressions  (calendario + formulario)
 # ======================================================
 with st.expander("📅 Daily Impressions", expanded=False):
 
-    # ---------- hoja Google Sheets ----------
+    IMP_HEADER = ["Fecha", "Impression", "Reflection",
+                  "Good?", "ImageURLs"]          # cabecera única
+
+    # ---------- obtener / crear hoja ----------
     try:
         ws_imp = gspread.authorize(creds)\
                  .open_by_key("1D4AlYBD1EClp0gGe0qnxr8NeGMbpSvdOx8yHimQDmbE")\
                  .worksheet("daily_impressions")
     except gspread.exceptions.WorksheetNotFound:
         ws_imp = ws.add_worksheet("daily_impressions", rows=1000, cols=10)
-        ws_imp.append_row(["Fecha","FirstImpression","Reflection",
-                           "Good?","ImageURLs"])
+        ws_imp.append_row(IMP_HEADER)
+
+    # --- fuerza cabecera correcta si falta algo ---
+    try:
+        if ws_imp.row_values(1) != IMP_HEADER:
+            ws_imp.update("A1", [IMP_HEADER])
+    except gspread.exceptions.APIError:
+        time.sleep(1.5)
+        if ws_imp.row_values(1) != IMP_HEADER:
+            ws_imp.update("A1", [IMP_HEADER])
 
     imp_df = pd.DataFrame(ws_imp.get_all_records())
     if not imp_df.empty:
@@ -98,12 +109,10 @@ with st.expander("📅 Daily Impressions", expanded=False):
     m = st.session_state.setdefault("imp_m", today.month)
 
     def _shift_months(delta:int):
-        """Avanza/retrocede n meses y guarda en session_state"""
         ym = datetime(y, m, 1) + pd.DateOffset(months=delta)
-        st.session_state["imp_y"], st.session_state["imp_m"] = ym.year, ym.month
+        st.session_state.update({"imp_y": ym.year, "imp_m": ym.month})
         st.experimental_rerun()
 
-    # ---------- navegación ----------
     nav1, nav2, nav3, nav4, nav5 = st.columns([1,1,3,1,1])
     if nav1.button("⏮"): _shift_months(-12)
     if nav2.button("◀"):  _shift_months(-1)
@@ -115,8 +124,8 @@ with st.expander("📅 Daily Impressions", expanded=False):
     # ---------- calendario ----------
     m_ini = datetime(y, m, 1)
     m_end = (m_ini + pd.offsets.MonthEnd()).to_pydatetime()
-    cols = st.columns(7)
-    offset = m_ini.weekday()        # lunes = 0
+    cols   = st.columns(7)
+    offset = m_ini.weekday()
     for _ in range(offset): cols[_].write(" ")
 
     for i, d in enumerate(pd.date_range(m_ini, m_end)):
@@ -125,16 +134,14 @@ with st.expander("📅 Daily Impressions", expanded=False):
         col = cols[(offset+i) % 7]
 
         d_str = d.strftime("%Y-%m-%d")
-        record = imp_df[imp_df["Fecha"] == d_str]
-        has_imp = not record.empty
+        rec   = imp_df[imp_df["Fecha"] == d_str]
+        has_i = not rec.empty
 
-        # botón día
         if col.button(str(d.day), key=f"btn_{d_str}"):
             st.session_state["imp_sel"] = d_str
 
-        # mini-thumb
-        if has_imp and record.iloc[0]["ImageURLs"]:
-            thumb = record.iloc[0]["ImageURLs"].splitlines()[0].strip()
+        if has_i and rec.iloc[0]["ImageURLs"]:
+            thumb = rec.iloc[0]["ImageURLs"].splitlines()[0].strip()
             try:
                 col.image(thumb, width=50)
             except st.runtime.media_file_storage.MediaFileStorageError:
@@ -146,32 +153,29 @@ with st.expander("📅 Daily Impressions", expanded=False):
     sel = st.session_state.get("imp_sel")
     if sel:
         rec = imp_df[imp_df["Fecha"] == sel]
-        def v(col, default=""): return rec.iloc[0][col] if not rec.empty else default
+        getv = lambda k: (rec.iloc[0][k] if (k in rec.columns and not rec.empty) else "")
 
         st.markdown("---")
         st.subheader(f"Impression – {sel}")
 
-        f_imp   = st.text_area("✏️ Primera impresión", v("FirstImpression"))
-        reflect = st.text_area("🔍 Reflexión / Análisis", v("Reflection"))
+        f_imp   = st.text_area("✏️ Primera impresión", getv("Impression"))
+        reflect = st.text_area("🔍 Reflexión / Análisis", getv("Reflection"))
         good    = st.selectbox("¿Acertada?", ["N/A","Yes","No"],
-                               index=["N/A","Yes","No"].index(v("Good?","N/A") or "N/A"))
-        urls    = st.text_area("URLs imágenes (una por línea)", v("ImageURLs"))
+                               index=["N/A","Yes","No"].index(getv("Good?") or "N/A"))
+        urls    = st.text_area("URLs imágenes (una por línea)", getv("ImageURLs"))
 
         if st.button("💾 Guardar / Actualizar"):
-            row = {"Fecha": sel,
-                   "Impression": f_imp,        # ← nombre antiguo
-                   "Reflection": reflect,
-                   "Good?": good,
+            row = {"Fecha": sel, "Impression": f_imp,
+                   "Reflection": reflect, "Good?": good,
                    "ImageURLs": urls}
 
-            header = ws_imp.row_values(1)      # ['Fecha','Impression',...]
             if rec.empty:
-                ws_imp.append_row([row[c] for c in header])
+                ws_imp.append_row([row[c] for c in IMP_HEADER])
             else:
                 r = rec.index[0] + 2
-                ws_imp.update(f"A{r}:E{r}", [[row[c] for c in header]])
-            st.success("Guardado ✔️"); st.experimental_rerun()
-
+                ws_imp.update(f"A{r}:E{r}", [[row[c] for c in IMP_HEADER]])
+            st.success("Guardado ✔️")
+            st.experimental_rerun()
 
 
 # ======================================================
