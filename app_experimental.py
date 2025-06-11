@@ -95,30 +95,29 @@ with st.expander("1) Métricas de rendimiento avanzado", expanded=False):
         use_container_width=True
     )
 
-    # ---------- Loss convertibles ----------
-    sec = df_real["SecondTradeValid?"].fillna("").str.strip().str.lower()
-    conv_yes = ((df_real["Win/Loss/BE"]=="Loss") & (sec=="yes")).sum()
-    conv_no  = ((df_real["Win/Loss/BE"]=="Loss") & (sec=="no")).sum()
-    total_loss = conv_yes + conv_no
-    conv_pct = 100*conv_yes/total_loss if total_loss else 0
-    color = "green" if conv_pct >= 50 else "red"
-
-    st.markdown(f"### Loss convertibles: "
-                f"<span style='color:{color}'>"
-                f"{conv_yes}/{total_loss} → {conv_pct:.1f}%</span>",
-                unsafe_allow_html=True)
+      # -- Loss convertibles ----------
+    conv_yes = ((df_real["Win/Loss/BE"]=="Loss") &
+                (df_real["SecondTradeValid?"]=="Yes")).sum()
+    conv_no  = ((df_real["Win/Loss/BE"]=="Loss") &
+                (df_real["SecondTradeValid?"]=="No")).sum()
+    conv_pct = 100*conv_yes/(conv_yes+conv_no) if (conv_yes+conv_no) else 0
+    st.write(f"### Loss convertibles: {conv_yes}/{conv_yes+conv_no}  "
+             f"→ **{conv_pct:.1f}%**")
 
     st.plotly_chart(
         px.bar(pd.DataFrame({"Status":["Convertible","No"],
                              "Count":[conv_yes,conv_no]}),
                x="Status",y="Count",text="Count",
                title="Loss convertibles (Yes vs No)"),
-        use_container_width=True
-    )
+        use_container_width=True)
 
-    with st.expander("Ver índices de Loss convertibles"):
-        conv_list = df_real[(df_real["Win/Loss/BE"]=="Loss") & (sec=="yes")]
-        st.dataframe(conv_list[["Idx","Fecha","Symbol"]])
+    # -------- Detalle de índices --------
+    with st.container():
+        st.markdown("**Índices de Loss convertibles (Yes):**")
+        conv_list = df_real[(df_real["Win/Loss/BE"]=="Loss") &
+                            (df_real["SecondTradeValid?"]=="Yes")][["Idx","Fecha","Symbol"]]
+        st.dataframe(conv_list, height=200)
+
 
 
 # ============================================================
