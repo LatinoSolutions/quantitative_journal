@@ -546,8 +546,9 @@ with st.expander("🔍 Auditoría DumpTrades MT5", expanded=False):
                 ws.append_rows(df[HEADER].values.tolist())
             st.success(f"Nuevos {added} | Reemplazados {repl} | Corregidos {fixed} — F5.")
 # ======================================================
-# 7 · 🛠️ Reparar signos de Loss
+# 🛠️ Reparar signos (Loss positivos) - COMMENTED OUT
 # ======================================================
+'''
 with st.expander("🛠️ Reparar signos (Loss positivos)", expanded=False):
     # detecta filas mal firmadas
     bad = df[(df["Win/Loss/BE"]=="Loss") & (pd.to_numeric(df["Gross_USD"], errors="coerce")>0)]
@@ -567,7 +568,4 @@ with st.expander("🛠️ Reparar signos (Loss positivos)", expanded=False):
             update_row(i, row_dict)
             count += 1
         st.success(f"{count} fila(s) corregidas ✔️ — pulsa Rerun.")
-
-# ====================================================== #
-#                   End of Main Sections                    #
-# ====================================================== #
+'''
