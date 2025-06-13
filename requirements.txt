@@ -3,4 +3,5 @@ gspread
 pandas
 google-auth
 plotly
+openpyxl>=3.1
 # opcional altair o matplotlib
