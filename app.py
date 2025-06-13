@@ -263,6 +263,115 @@ with st.expander("➕ Registrar trade", expanded=False):
         ws.append_row([trade[c] for c in HEADER])
         st.success("✔️ Trade agregado")
         df = get_all()
+# ======================================================
+# 1·5  ⬆️ Importar reporte MT5 (.xlsx)
+#        – Añade / actualiza trades en la misma hoja
+# ======================================================
+with st.expander("⬆️ Importar reporte MT5 (.xlsx)", expanded=False):
+
+    upl_file = st.file_uploader(
+        "Arrastra aquí el ReportHistory-*.xlsx exportado desde MT5",
+        type=["xlsx"]
+    )
+
+    if upl_file:
+        try:
+            # ---------- 1) leemos Excel ----------
+            rep = pd.read_excel(upl_file, engine="openpyxl")
+
+            # ---------- 2) columnas mínimas ----------
+            COL_MAP = {
+                "Ticket":       ["Ticket", "Deal", "Order"],
+                "Fecha":        ["Time", "Open Time", "Open Time GMT", "Open Time"],
+                "Symbol":       ["Symbol", "Instrument"],
+                "Volume":       ["Volume", "Lots"],
+                "Tipo":         ["Type", "Direction"],
+                "Profit":       ["Profit", "Net Profit", "Result"]
+            }
+            def find(col):
+                for c in COL_MAP[col]:
+                    if c in rep.columns: return c
+                st.error(f"Columna «{col}» no encontrada en el XLS 😢"); st.stop()
+
+            rep = rep.rename(columns={
+                find("Ticket"):  "Ticket",
+                find("Fecha"):   "Fecha",
+                find("Symbol"):  "Symbol",
+                find("Volume"):  "Volume",
+                find("Tipo"):    "Type",
+                find("Profit"):  "Profit"
+            })[["Ticket","Fecha","Symbol","Volume","Type","Profit"]]
+
+            # normalizamos formatos
+            rep["Fecha"]  = pd.to_datetime(rep["Fecha"])
+            rep["Date"]   = rep["Fecha"].dt.strftime("%Y-%m-%d")
+            rep["Time"]   = (rep["Fecha"] - pd.Timedelta(hours=1))\
+                              .dt.strftime("%H:%M:%S")      #  –1 h (ajusta si quieres)
+            rep["Volume"] = rep["Volume"].astype(float)
+            rep["Profit"] = rep["Profit"].astype(float)
+
+            # calculamos campos que faltan
+            rep["Commission"] = rep["Volume"].apply(true_commission)
+            rep["Gross_USD"]  = rep["Profit"] + rep["Commission"]
+            rep["Win/Loss/BE"] = np.where(
+                abs(rep["Profit"]) < 0.01, "BE",
+                np.where(rep["Profit"] > 0, "Win", "Loss")
+            )
+            rep["R"] = rep["Profit"].apply(calc_r)
+
+            # ---------- 3) cruzamos con hoja existente ----------
+            df_old = get_all()
+            tickets_old = set(df_old["Ticket"].astype(str))
+
+            to_add    = rep[~rep["Ticket"].astype(str).isin(tickets_old)].copy()
+            to_update = rep[rep["Ticket"].astype(str).isin(tickets_old)].copy()
+
+            st.success(f"Detectados {len(to_add)} nuevos trade(s) · "
+                       f"{len(to_update)} actualización(es).")
+
+            with st.expander("👀 Pre-visualizar diferencia", expanded=False):
+                st.subheader("Nuevos")
+                st.dataframe(to_add, use_container_width=True, height=180)
+                st.subheader("Actualiza")
+                st.dataframe(to_update, use_container_width=True, height=180)
+
+            if st.button("✅ Aplicar cambios"):
+                # --- añadir ---
+                for _, r in to_add.iterrows():
+                    row = dict(zip(HEADER, [
+                        r["Date"], r["Time"], r["Symbol"],
+                        "Long" if r["Type"].lower().startswith("buy") else "Short",
+                        r["Volume"], r["Ticket"], r["Win/Loss/BE"],
+                        r["Gross_USD"], r["Commission"], r["Profit"], r["R"],
+                        "", "", "", "", "", "No", "N/A", "", "", "No", ""
+                    ]))
+                    ws.append_row([row[c] for c in HEADER])
+
+                # --- actualizar ---
+                if not to_update.empty and "Ticket" in df_old.columns:
+                    for _, r in to_update.iterrows():
+                        idx = df_old.index[df_old["Ticket"] == str(r["Ticket"])]
+                        if idx.size:
+                            i = idx[0]
+                            upd = df_old.loc[i].to_dict()
+                            upd.update({
+                                "Fecha":        r["Date"],
+                                "Hora":         r["Time"],
+                                "Symbol":       r["Symbol"],
+                                "Volume":       r["Volume"],
+                                "Type":         "Long" if r["Type"].lower().startswith("buy") else "Short",
+                                "Win/Loss/BE":  r["Win/Loss/BE"],
+                                "Gross_USD":    r["Gross_USD"],
+                                "Commission":   r["Commission"],
+                                "USD":          r["Profit"],
+                                "R":            r["R"],
+                                "Ticket":       r["Ticket"],
+                            })
+                            update_row(i, upd)
+
+                st.success("Importación completada ✔️ – pulsa **Rerun** para ver métricas.")
+        except Exception as e:
+            st.error(f"❌ Error procesando el XLS: {e}")
 
 # ======================================================
 # 2 · KPI panel
