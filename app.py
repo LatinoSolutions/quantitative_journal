@@ -270,10 +270,7 @@ import io, time, pandas as pd, numpy as np
 
 # ────── util ──────
 def _find_header_row(df_raw: pd.DataFrame) -> int:
-    """
-    Devuelve el índice de la fila cuyo primer valor sea 'Time'
-    (ignora may/min y espacios).  Si no lo encuentra, devuelve 0.
-    """
+    """Devuelve el índice de la fila cuyo primer valor sea 'Time'."""
     for i, cell in enumerate(df_raw.iloc[:, 0].astype(str)):
         if cell.strip().lower() == "time":
             return i
@@ -293,11 +290,11 @@ REQ_COLS = {"ticket", "symbol", "volume", "type", "profit", "time"}
 def _proc_report(upload):
     bin_ = upload.read()
 
-    # 1· leemos bruto para detectar la fila-encabezado verdadera
+    # 1· leemos bruto para detectar la fila-encabezado real
     df_raw = pd.read_excel(io.BytesIO(bin_), header=None, engine="openpyxl")
     hdr_row = _find_header_row(df_raw)
 
-    # 2· volvemos a leer con esos encabezados
+    # 2· volvemos a leer usando esa fila como encabezados
     df = pd.read_excel(io.BytesIO(bin_), skiprows=hdr_row, engine="openpyxl")
 
     # 3· normalizamos nombres
@@ -315,8 +312,7 @@ def _proc_report(upload):
     st.success("✅ Reporte leído correctamente")
     st.dataframe(df.head())
 
-    # ---------- AQUÍ va la carga a Google Sheets ----------
-    #
+    # ---------- (opcional) subir a Google Sheets ----------
     # for _, r in df.iterrows():
     #     trade = {**{c:"" for c in HEADER}, **{
     #         "Fecha":  str(r["time"].date()),
@@ -327,19 +323,17 @@ def _proc_report(upload):
     #         "Ticket": int(r["ticket"]),
     #         "Win/Loss/BE": "Win" if r["profit"]>0 else "Loss",
     #         "USD":    r["profit"],
-    #         "Gross_USD": r["profit"],      # ajustar si calculas comisión aparte
+    #         "Gross_USD": r["profit"],
     #         "Commission": 0,
     #         "R":      calc_r(r["profit"]),
     #     }}
     #     ws.append_row([trade[c] for c in HEADER])
-    #
     # st.success("📥 Trades importados a la hoja")
 
 with st.expander("⬆️ Importar reporte MT5", expanded=False):
     upl = st.file_uploader("Arrastra el XLSX exportado desde MT5", type=["xlsx"])
     if upl:
         _proc_report(upl)
-
 
 # ======================================================
 # 2 · KPI panel
