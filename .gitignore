@@ -23,4 +23,4 @@ ENV/
 # Distribution / packaging
 dist/
 build/
-*.egg-info/ 
+*.egg-info/ .DS_Store
