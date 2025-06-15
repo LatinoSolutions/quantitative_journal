@@ -264,89 +264,81 @@ with st.expander("➕ Registrar trade", expanded=False):
         st.success("✔️ Trade agregado")
         df = get_all()
 # ======================================================
-# 0 · Importar trades desde un XLS de MT5
+#  🔄 Importar reporte MT5
 # ======================================================
-with st.expander("📥 Importar XLS MT5", expanded=False):
-    up = st.file_uploader("Sube el ReportHistory-xxxxx.xlsx",
-                          type=["xls", "xlsx"])
-    if up is None:
-        st.info("Exporta 'Account History → Report → XLSX' en MT5 y súbelo aquí.")
-    else:
-        try:
-            import openpyxl  # garante que está instalado
-            df_xls = pd.read_excel(up)
+import io, time, pandas as pd, numpy as np
 
-            # --------- mapa flexible de nombres ----------
-            lookup = {
-                "ticket":   ["ticket", "order", "order id", "nº", "número"],
-                "symbol":   ["symbol", "símbolo", "instrument"],
-                "volume":   ["volume", "volumen", "lots"],
-                "type":     ["type", "tipo"],
-                "profit":   ["profit", "benefit", "resultado"],
-                "date":     ["time", "date", "fecha"],
-            }
-            col_map = {}
-            for need, variants in lookup.items():
-                for col in df_xls.columns:
-                    if col.strip().lower() in variants:
-                        col_map[need] = col
-                        break
+# ────── util ──────
+def _find_header_row(df_raw: pd.DataFrame) -> int:
+    """
+    Devuelve el índice de la fila cuyo primer valor sea 'Time'
+    (ignora may/min y espacios).  Si no lo encuentra, devuelve 0.
+    """
+    for i, cell in enumerate(df_raw.iloc[:, 0].astype(str)):
+        if cell.strip().lower() == "time":
+            return i
+    return 0
 
-            missing = [k for k in lookup if k not in col_map]
-            if missing:
-                st.error(f"No encontré las columnas: {', '.join(missing)}.\n"
-                         f"Encabezados detectados: {list(df_xls.columns)}")
-                st.stop()
+# ────── mapeo MT5 → internos ──────
+ALIASES = {
+    "position": "ticket",
+    "time":     "time",
+    "symbol":   "symbol",
+    "type":     "type",
+    "volume":   "volume",
+    "profit":   "profit",
+}
+REQ_COLS = {"ticket", "symbol", "volume", "type", "profit", "time"}
 
-            # --------- normaliza ----------
-            df_xls = df_xls.rename(columns={
-                col_map["ticket"]: "Ticket",
-                col_map["symbol"]: "Symbol",
-                col_map["volume"]: "Volume",
-                col_map["type"]:   "TypeCode",
-                col_map["profit"]: "Profit",
-                col_map["date"]:   "Datetime",
-            })
-            df_xls["Datetime"] = pd.to_datetime(df_xls["Datetime"],
-                                                errors="coerce")
-            df_xls["Fecha"] = df_xls["Datetime"].dt.strftime("%Y-%m-%d")
-            df_xls["Hora"]  = (df_xls["Datetime"] - pd.Timedelta(hours=1))\
-                                .dt.strftime("%H:%M:%S")   # ajusta GMT+2 → GMT+1 etc.
-            df_xls["Volume"] = pd.to_numeric(df_xls["Volume"],
-                                             errors="coerce")
-            df_xls["Profit"] = pd.to_numeric(df_xls["Profit"],
-                                             errors="coerce")
+def _proc_report(upload):
+    bin_ = upload.read()
 
-            st.success(f"📄 {len(df_xls)} filas leídas.")
+    # 1· leemos bruto para detectar la fila-encabezado verdadera
+    df_raw = pd.read_excel(io.BytesIO(bin_), header=None, engine="openpyxl")
+    hdr_row = _find_header_row(df_raw)
 
-            # --------- vista previa ----------
-            st.dataframe(df_xls[["Fecha", "Hora", "Ticket",
-                                 "Symbol", "Volume", "Profit"]].head())
+    # 2· volvemos a leer con esos encabezados
+    df = pd.read_excel(io.BytesIO(bin_), skiprows=hdr_row, engine="openpyxl")
 
-            # --------- botón importar ----------
-            if st.button("🚀 Importar en hoja"):
-                added = 0
-                for _, r in df_xls.iterrows():
-                    vol   = float(r["Volume"])
-                    comm  = true_commission(vol)
-                    usd   = float(r["Profit"])
-                    gross = usd + comm
-                    res   = "Win" if usd > 0 else ("BE" if abs(usd) < 0.01 else "Loss")
+    # 3· normalizamos nombres
+    df.columns = [c.strip().lower() for c in df.columns]
+    df = df.rename(columns={c: ALIASES[c] for c in df.columns if c in ALIASES})
 
-                    row = dict(zip(HEADER, [
-                        r["Fecha"], r["Hora"], r["Symbol"],
-                        "Long" if int(r["TypeCode"]) % 2 else "Short",
-                        vol, r["Ticket"], res, gross, comm, usd,
-                        calc_r(usd), "", "", "", "", "", "No",
-                        "", "", "", "No", ""   # campos vacíos
-                    ]))
-                    ws.append_row([row[c] for c in HEADER])
-                    added += 1
+    # 4· validamos
+    missing = REQ_COLS.difference(df.columns)
+    if missing:
+        st.error(f"❌ Faltan columnas {missing}\n"
+                 f"Encabezados detectados: {list(df.columns)}")
+        return
 
-                st.success(f"✅ {added} trade(s) importados. Pulsa *Rerun* para verlos.")
+    # 5· preview
+    st.success("✅ Reporte leído correctamente")
+    st.dataframe(df.head())
 
-        except Exception as e:
-            st.error(f"❌ Error procesando el XLS: {e}")
+    # ---------- AQUÍ va la carga a Google Sheets ----------
+    #
+    # for _, r in df.iterrows():
+    #     trade = {**{c:"" for c in HEADER}, **{
+    #         "Fecha":  str(r["time"].date()),
+    #         "Hora":   str(r["time"].time()),
+    #         "Symbol": r["symbol"],
+    #         "Type":   "Long" if str(r["type"]).lower()=="buy" else "Short",
+    #         "Volume": r["volume"],
+    #         "Ticket": int(r["ticket"]),
+    #         "Win/Loss/BE": "Win" if r["profit"]>0 else "Loss",
+    #         "USD":    r["profit"],
+    #         "Gross_USD": r["profit"],      # ajustar si calculas comisión aparte
+    #         "Commission": 0,
+    #         "R":      calc_r(r["profit"]),
+    #     }}
+    #     ws.append_row([trade[c] for c in HEADER])
+    #
+    # st.success("📥 Trades importados a la hoja")
+
+with st.expander("⬆️ Importar reporte MT5", expanded=False):
+    upl = st.file_uploader("Arrastra el XLSX exportado desde MT5", type=["xlsx"])
+    if upl:
+        _proc_report(upl)
 
 
 # ======================================================
